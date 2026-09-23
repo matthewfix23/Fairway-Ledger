@@ -372,6 +372,37 @@
   .trip-roster-row input[type="checkbox"] { width: auto; }
   .trip-roster-row input.trip-roster-hcp { width: 100px; padding: 5px 7px; font-size: 0.82rem; }
 
+  /* ---------- course search (round modal) ---------- */
+  .course-search-row { display: flex; gap: 8px; }
+  .course-search-row input { flex: 1; }
+  .course-search-results {
+    margin-top: 6px; border: 1px solid var(--line); border-radius: 2px;
+    max-height: 220px; overflow-y: auto; background: #fff;
+  }
+  .course-search-results .csr-item {
+    display: block; width: 100%; text-align: left; background: none; border: none;
+    padding: 9px 12px; font-size: 0.85rem; cursor: pointer; border-bottom: 1px solid var(--line-soft);
+    color: var(--ink);
+  }
+  .course-search-results .csr-item:last-child { border-bottom: none; }
+  .course-search-results .csr-item:hover { background: var(--card); }
+  .course-search-results .csr-item .csr-name { font-weight: 600; color: var(--fairway-deep); }
+  .course-search-results .csr-item .csr-loc { color: var(--ink-soft); font-size: 0.78rem; }
+  .course-search-status { font-size: 0.78rem; color: var(--ink-soft); margin-top: 6px; }
+  .course-picked-chip {
+    display: inline-flex; align-items: center; gap: 8px; margin-top: 8px;
+    background: var(--card); border: 1px solid var(--line); border-radius: 20px;
+    padding: 5px 6px 5px 12px; font-size: 0.82rem;
+  }
+  .course-picked-chip button {
+    background: none; border: none; color: var(--ink-soft); cursor: pointer;
+    font-size: 1rem; line-height: 1; padding: 2px 6px;
+  }
+  .tee-select-row { display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+  .tee-select-row select { max-width: 320px; }
+  .tee-rating-note { font-size: 0.78rem; color: var(--ink-soft); }
+  .round-card .rtee { font-size: 0.76rem; color: var(--ink-soft); margin-top: 2px; }
+
   .hcp-tag { font-size: 0.76em; font-weight: 400; color: var(--ink-soft); }
 
   /* ---------- modal ---------- */
@@ -474,6 +505,59 @@ let isOwner = false; // true once the site owner signs in; controls whether edit
 const store = { players: [], trips: [], roundsByTrip: {} };
 const unsubs = { players: null, trips: null, rounds: {} };
 const DEFAULT_PAR = [4,4,3,4,5,4,3,4,5, 4,4,3,4,5,4,3,4,5]; // 18 holes, par 72
+
+/* ======================= Course lookup (OpenGolfAPI) =======================
+   Free, keyless, public golf course database: search by name, then pull
+   per-hole par and tee ratings/slopes for the selected tee. No account or
+   API key needed — this is a courtesy of opengolfapi.org's open dataset. */
+const OGA_BASE = "https://api.opengolfapi.org/v1";
+
+async function ogaSearchCourses(query) {
+  const res = await fetch(`${OGA_BASE}/courses/search?q=${encodeURIComponent(query)}&limit=8`);
+  if (!res.ok) throw new Error("search failed");
+  const data = await res.json();
+  return data.courses || [];
+}
+
+async function ogaGetCourseDetail(id) {
+  const res = await fetch(`${OGA_BASE}/courses/${encodeURIComponent(id)}`);
+  if (!res.ok) throw new Error("detail failed");
+  return await res.json();
+}
+
+// Field names in this community-maintained dataset vary a bit course to
+// course, so read defensively with fallbacks rather than assuming one shape.
+function ogaNormalizeHole(h) {
+  const num = h.number ?? h.hole ?? h.hole_number ?? h.num;
+  const par = h.par;
+  return { number: Number(num) || null, par: Number(par) || null };
+}
+function ogaNormalizeTee(t) {
+  const holes = Array.isArray(t.holes) ? t.holes.map(ogaNormalizeHole) : [];
+  return {
+    name: t.tee_name || t.name || "Tee",
+    gender: t.gender || "",
+    rating: t.course_rating ?? t.rating ?? null,
+    slope: t.slope_rating ?? t.slope ?? null,
+    parTotal: t.par_total ?? t.par ?? null,
+    yards: t.total_yards ?? t.yardage ?? null,
+    holes,
+  };
+}
+// Flattens the detail response into a course-level 18-length par array
+// (par doesn't vary by tee, only yardage does) using whichever field the
+// response actually provided.
+function ogaCoursePars(detail) {
+  const rawHoles = Array.isArray(detail.holes) ? detail.holes
+    : Array.isArray(detail.scorecard) ? detail.scorecard
+    : [];
+  if (!rawHoles.length) return null;
+  const normalized = rawHoles.map(ogaNormalizeHole).filter(h => h.number && h.par);
+  if (normalized.length < 18) return null;
+  const pars = new Array(18).fill(null);
+  normalized.forEach(h => { if (h.number >= 1 && h.number <= 18) pars[h.number - 1] = h.par; });
+  return pars.every(p => p) ? pars : null;
+}
 
 function setStatus(state, text) {
   dbState = state;
@@ -788,12 +872,16 @@ function buildScorecardTable(r) {
 
 function renderRoundCard(tripId, r, isOpen) {
   const entries = Object.entries(r.scores || {}).filter(([, h]) => h.some(x => Number(x) > 0));
+  const teeBits = [];
+  if (r.teeName) teeBits.push(`${r.teeName} tees`);
+  if (r.courseRating && r.slopeRating) teeBits.push(`${r.courseRating}/${r.slopeRating}`);
   return `
     <div class="round-card ${isOpen ? 'open' : ''}" id="round-${r.id}">
       <div class="rhead" onclick="toggleRound('${r.id}')">
         <div>
           <div class="rtitle">${fmtDate(r.date)}</div>
           <div class="rdate">${entries.length} player${entries.length===1?'':'s'}</div>
+          ${teeBits.length ? `<div class="rtee">${escapeHtml(teeBits.join(' · '))}</div>` : ''}
         </div>
         <div style="display:flex;align-items:center;gap:10px;">
           ${isOwner ? `<button class="btn small danger" onclick="event.stopPropagation(); deleteRound('${tripId}','${r.id}')">Delete</button>` : ''}
@@ -1192,6 +1280,16 @@ function openRoundModal(tripId, presetCourse) {
           <input type="text" id="rParTotal" readonly value="72">
         </div>
       </div>
+      <div class="field" id="courseLookupField">
+        <label>Look up the course <span class="tag">(fills in par, and lets you pick a tee for rating/slope)</span></label>
+        <div class="course-search-row">
+          <input type="text" id="courseSearchInput" placeholder="Search course name…" value="${escapeHtml(presetCourse || '')}">
+          <button type="button" class="btn ghost small" onclick="searchCourseForRound()">Search</button>
+        </div>
+        <div id="courseSearchResults"></div>
+        <div id="courseSearchStatus" class="course-search-status"></div>
+        <div id="coursePickedArea"></div>
+      </div>
       <div class="field">
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
           <label style="margin:0;">Who played</label>
@@ -1215,9 +1313,127 @@ function openRoundModal(tripId, presetCourse) {
     par: DEFAULT_PAR.slice(),
     rosterList,
     players: defaultPlayers.filter(pid => rosterList.some(p => p.id === pid)),
+    teeName: null,
+    courseRating: null,
+    slopeRating: null,
+    sourceCourseId: null,
+    teeOptions: [],
   };
   renderRosterPick();
   renderScorecardEntry();
+
+  // If we already know the course (adding another round to an existing
+  // course tab), kick off a search for it automatically so the tee/rating
+  // picker can appear without an extra click.
+  if (presetCourse) searchCourseForRound();
+}
+
+/* ---- course search interactions (round modal) ---- */
+async function searchCourseForRound() {
+  const input = document.getElementById('courseSearchInput');
+  const statusEl = document.getElementById('courseSearchStatus');
+  const resultsEl = document.getElementById('courseSearchResults');
+  if (!input || !statusEl || !resultsEl) return;
+  const q = input.value.trim();
+  if (!q) return;
+  resultsEl.innerHTML = '';
+  statusEl.textContent = 'Searching…';
+  try {
+    const courses = await ogaSearchCourses(q);
+    if (!courses.length) {
+      statusEl.textContent = 'No matches — you can still enter the course and par by hand.';
+      return;
+    }
+    statusEl.textContent = '';
+    resultsEl.innerHTML = `<div class="course-search-results">${courses.map(c => {
+      const name = escapeHtml(c.course_name || c.name || 'Unnamed course');
+      const loc = escapeHtml([c.city, c.state].filter(Boolean).join(', '));
+      return `<button type="button" class="csr-item" onclick="pickSearchedCourse('${jsAttr(c.id)}', '${jsAttr(c.course_name || c.name || '')}')">
+        <div class="csr-name">${name}</div>
+        ${loc ? `<div class="csr-loc">${loc}</div>` : ''}
+      </button>`;
+    }).join('')}</div>`;
+  } catch (err) {
+    statusEl.textContent = "Course lookup isn't reachable right now — you can still enter the course and par by hand.";
+  }
+}
+
+async function pickSearchedCourse(id, name) {
+  const statusEl = document.getElementById('courseSearchStatus');
+  const resultsEl = document.getElementById('courseSearchResults');
+  const pickedEl = document.getElementById('coursePickedArea');
+  const courseInput = document.getElementById('rCourse');
+  if (resultsEl) resultsEl.innerHTML = '';
+  if (statusEl) statusEl.textContent = 'Loading course details…';
+  if (courseInput && !courseInput.readOnly) courseInput.value = name;
+
+  try {
+    const detail = await ogaGetCourseDetail(id);
+    const pars = ogaCoursePars(detail);
+    const tees = Array.isArray(detail.tees) ? detail.tees.map(ogaNormalizeTee) : [];
+
+    window.__roundState.sourceCourseId = id;
+    window.__roundState.teeOptions = tees;
+    if (pars) window.__roundState.par = pars;
+
+    if (statusEl) statusEl.textContent = '';
+    renderPickedCourseArea(name, tees);
+    if (tees.length) onTeeSelected(0); else renderScorecardEntry();
+  } catch (err) {
+    if (statusEl) statusEl.textContent = "Couldn't load that course's details — you can still enter par by hand.";
+  }
+}
+
+function renderPickedCourseArea(name, tees) {
+  const el = document.getElementById('coursePickedArea');
+  if (!el) return;
+  const teeOptionsHtml = tees.map((t, i) => {
+    const bits = [];
+    if (t.rating) bits.push(t.rating);
+    if (t.slope) bits.push(`/${t.slope}`);
+    const ratingStr = bits.length ? ` — ${bits.join('')}` : '';
+    return `<option value="${i}">${escapeHtml(t.name)}${t.gender ? ' (' + escapeHtml(t.gender) + ')' : ''}${escapeHtml(ratingStr)}</option>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div class="course-picked-chip">📍 ${escapeHtml(name)} <button type="button" onclick="clearPickedCourse()" title="Clear">✕</button></div>
+    ${tees.length ? `
+      <div class="tee-select-row">
+        <label class="tag" style="margin:0;">Tee</label>
+        <select id="teeSelect" onchange="onTeeSelected(this.value)">${teeOptionsHtml}</select>
+        <span class="tee-rating-note" id="teeRatingNote"></span>
+      </div>` : `<div class="course-search-status">No tee data available for this course — par row filled in where possible.</div>`}
+  `;
+}
+
+function onTeeSelected(idx) {
+  const st = window.__roundState;
+  const tee = st.teeOptions[Number(idx)];
+  if (!tee) return;
+  st.teeName = tee.name;
+  st.courseRating = tee.rating;
+  st.slopeRating = tee.slope;
+  // Prefer this tee's own per-hole par if it has a full 18; otherwise keep
+  // whatever the course-level lookup already filled in.
+  if (tee.holes && tee.holes.length >= 18) {
+    const pars = new Array(18).fill(null);
+    tee.holes.forEach(h => { if (h.number >= 1 && h.number <= 18 && h.par) pars[h.number - 1] = h.par; });
+    if (pars.every(p => p)) st.par = pars;
+  }
+  const note = document.getElementById('teeRatingNote');
+  if (note) note.textContent = (tee.rating && tee.slope) ? `Rating/Slope: ${tee.rating}/${tee.slope}` : '';
+  renderScorecardEntry();
+}
+
+function clearPickedCourse() {
+  const st = window.__roundState;
+  st.sourceCourseId = null;
+  st.teeOptions = [];
+  st.teeName = null;
+  st.courseRating = null;
+  st.slopeRating = null;
+  const pickedEl = document.getElementById('coursePickedArea');
+  if (pickedEl) pickedEl.innerHTML = '';
 }
 
 function renderRosterPick() {
@@ -1324,6 +1540,10 @@ async function saveRound(tripId) {
     scores,
     createdAt: Date.now(),
   };
+  if (st.teeName) data.teeName = st.teeName;
+  if (st.courseRating) data.courseRating = st.courseRating;
+  if (st.slopeRating) data.slopeRating = st.slopeRating;
+  if (st.sourceCourseId) data.sourceCourseId = st.sourceCourseId;
   const ref = await db.collection(`trips/${tripId}/rounds`).add(data);
   closeModal();
   watchRounds(tripId);
