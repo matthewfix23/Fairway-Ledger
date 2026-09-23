@@ -403,6 +403,18 @@
   .tee-rating-note { font-size: 0.78rem; color: var(--ink-soft); }
   .round-card .rtee { font-size: 0.76rem; color: var(--ink-soft); margin-top: 2px; }
 
+  /* ---------- scorecard scan ---------- */
+  .scan-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .scan-controls input[type="file"] { display: none; }
+  table.scorecard select {
+    border: none; background: transparent; font-size: 0.8rem; max-width: 130px;
+    color: var(--fairway-deep); font-weight: 600;
+  }
+  table.scorecard input.scan-score-in {
+    width: 30px; text-align: center; padding: 4px 2px; border: none;
+    background: transparent; font-variant-numeric: tabular-nums;
+  }
+
   .hcp-tag { font-size: 0.76em; font-weight: 400; color: var(--ink-soft); }
 
   /* ---------- modal ---------- */
@@ -1395,6 +1407,15 @@ function openRoundModal(tripId, presetCourse, editingRound) {
         <div id="courseSearchStatus" class="course-search-status"></div>
         <div id="coursePickedArea"></div>
       </div>
+      <div class="field" id="scanField">
+        <label>Scan scorecards <span class="tag">(optional — snap a photo of a completed card; scan again for other groups)</span></label>
+        <div class="scan-controls">
+          <label class="btn ghost small" for="scanFileInput" style="cursor:pointer;">📷 Scan a card</label>
+          <input type="file" id="scanFileInput" accept="image/*" capture="environment" onchange="handleScorecardScan(this.files[0])">
+        </div>
+        <div id="scanStatus" class="course-search-status"></div>
+        <div id="scanReviewArea"></div>
+      </div>
       <div class="field">
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
           <label style="margin:0;">Who played ${editing ? '<span class="tag">(check anyone new to add them)</span>' : ''}</label>
@@ -1425,6 +1446,8 @@ function openRoundModal(tripId, presetCourse, editingRound) {
     slopeRating: editing ? (editingRound.slopeRating || null) : null,
     sourceCourseId: editing ? (editingRound.sourceCourseId || null) : null,
     teeOptions: [],
+    scanRows: [],
+    pendingScanScores: {},
   };
   renderRosterPick();
   renderScorecardEntry();
@@ -1589,7 +1612,7 @@ function renderScorecardEntry() {
     </tr>`;
   const headerRow = `<tr><th class="rowlabel">Hole</th>${st.par.map((p,i)=>`<th class="holecell">${i+1}</th>`).join('')}<th class="sum">TOT</th></tr>`;
   const bodyRows = st.players.map(pid => {
-    const existing = st.existingScores && st.existingScores[pid];
+    const existing = (st.existingScores && st.existingScores[pid]) || (st.pendingScanScores && st.pendingScanScores[pid]);
     const cells = st.par.map((p, i) => {
       const v = existing && Number(existing[i]) > 0 ? existing[i] : '';
       return `<td><input class="score-in" type="number" min="1" max="12" data-pid="${pid}" data-hole="${i}" value="${v}" oninput="updateScoreTotal('${pid}')"></td>`;
@@ -1628,6 +1651,146 @@ function updateScoreTotal(pid) {
   inputs.forEach(inp => { const v = Number(inp.value); if (v > 0) { total += v; any = true; } });
   const cell = document.getElementById(`tot-${pid}`);
   if (cell) cell.textContent = any ? total : '–';
+}
+
+/* ======================= Scorecard scanning (free, client-side OCR) =======================
+   Uses Tesseract.js, loaded on demand, entirely in the browser — no account,
+   no API key, no cost, and the photo never leaves the device. Handwriting
+   accuracy is limited, so every detected row stays fully editable and
+   nothing is added to the scorecard until the owner assigns and confirms it. */
+let __tesseractLoadPromise = null;
+function loadTesseract() {
+  if (window.Tesseract) return Promise.resolve();
+  if (__tesseractLoadPromise) return __tesseractLoadPromise;
+  __tesseractLoadPromise = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error('Failed to load OCR library'));
+    document.head.appendChild(s);
+  });
+  return __tesseractLoadPromise;
+}
+
+// Heuristic parse: a line with a run of plausible stroke counts (1–15) is
+// treated as a candidate player row. This can't reliably tell a real score
+// row from a printed par row or a phone number, so results are capped and
+// always shown for review/removal rather than applied automatically.
+function parseScorecardText(text) {
+  const lines = String(text || '').split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const candidates = lines
+    .map(line => {
+      const matches = line.match(/\b([1-9]|1[0-5])\b/g);
+      return { numbers: matches ? matches.map(Number) : [] };
+    })
+    .filter(c => c.numbers.length >= 6);
+  candidates.sort((a, b) => b.numbers.length - a.numbers.length);
+  return candidates.slice(0, 6).map(c => {
+    const scores = new Array(18).fill(null);
+    c.numbers.slice(0, 18).forEach((n, i) => { scores[i] = n; });
+    return { scores, assignedPid: '' };
+  });
+}
+
+async function handleScorecardScan(file) {
+  if (!file) return;
+  const statusEl = document.getElementById('scanStatus');
+  if (statusEl) statusEl.textContent = 'Loading text recognition… (first scan takes a bit longer)';
+  try {
+    await loadTesseract();
+    if (statusEl) statusEl.textContent = 'Reading the scorecard…';
+    const worker = await Tesseract.createWorker('eng');
+    const { data } = await worker.recognize(file);
+    await worker.terminate();
+    const rows = parseScorecardText(data.text);
+    if (!rows.length) {
+      statusEl.textContent = "Couldn't make out a clear row of scores in that photo — try a clearer, well-lit shot, or enter scores by hand.";
+    } else {
+      statusEl.textContent = `Found ${rows.length} possible row${rows.length === 1 ? '' : 's'} — assign each to a player and fix any misreads below.`;
+      window.__roundState.scanRows = (window.__roundState.scanRows || []).concat(rows);
+      renderScanReview();
+    }
+  } catch (err) {
+    if (statusEl) statusEl.textContent = "Scanning didn't work on this device/browser — you can still enter scores by hand.";
+  }
+  const input = document.getElementById('scanFileInput');
+  if (input) input.value = '';
+}
+
+function renderScanReview() {
+  const st = window.__roundState;
+  const el = document.getElementById('scanReviewArea');
+  if (!el) return;
+  if (!st.scanRows || !st.scanRows.length) { el.innerHTML = ''; return; }
+
+  const headerRow = `<tr><th class="rowlabel">Assign to</th>${st.par.map((p, i) => `<th class="holecell">${i + 1}</th>`).join('')}<th></th></tr>`;
+  const bodyRows = st.scanRows.map((row, idx) => {
+    const options = st.rosterList.map(p =>
+      `<option value="${p.id}" ${row.assignedPid === p.id ? 'selected' : ''}>${escapeHtml(p.name)}</option>`
+    ).join('');
+    const cells = row.scores.map((v, i) =>
+      `<td><input class="scan-score-in" type="number" min="1" max="15" data-row="${idx}" data-hole="${i}" value="${v ?? ''}" oninput="updateScanRowValue(${idx}, ${i}, this.value)"></td>`
+    ).join('');
+    return `<tr>
+      <td class="rowlabel">
+        <select onchange="assignScanRow(${idx}, this.value)">
+          <option value="">— choose player —</option>
+          ${options}
+        </select>
+      </td>
+      ${cells}
+      <td><button type="button" class="btn small ghost" onclick="removeScanRow(${idx})" title="Remove this scanned row">✕</button></td>
+    </tr>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div class="scorecard-wrap" style="margin-top:10px;">
+      <table class="scorecard">${headerRow}${bodyRows}</table>
+    </div>
+    <div class="toolbar" style="margin-top:8px;">
+      <button type="button" class="btn small" onclick="applyScanRows()">Add assigned rows to scorecard</button>
+    </div>
+  `;
+}
+
+function assignScanRow(idx, pid) {
+  const st = window.__roundState;
+  if (!st.scanRows[idx]) return;
+  st.scanRows[idx].assignedPid = pid;
+}
+
+function updateScanRowValue(idx, holeIdx, val) {
+  const st = window.__roundState;
+  if (!st.scanRows[idx]) return;
+  st.scanRows[idx].scores[holeIdx] = Number(val) || null;
+}
+
+function removeScanRow(idx) {
+  const st = window.__roundState;
+  st.scanRows.splice(idx, 1);
+  renderScanReview();
+}
+
+function applyScanRows() {
+  const st = window.__roundState;
+  const statusEl = document.getElementById('scanStatus');
+  const remaining = [];
+  let appliedCount = 0;
+  st.scanRows.forEach(row => {
+    if (!row.assignedPid) { remaining.push(row); return; }
+    st.pendingScanScores[row.assignedPid] = row.scores.map(v => Number(v) || 0);
+    if (!st.players.includes(row.assignedPid)) st.players.push(row.assignedPid);
+    appliedCount++;
+  });
+  st.scanRows = remaining;
+  if (statusEl) {
+    statusEl.textContent = appliedCount
+      ? `Added ${appliedCount} scanned row${appliedCount === 1 ? '' : 's'} to the scorecard below — double-check the numbers.`
+      : 'Choose a player for each row before adding it to the scorecard.';
+  }
+  renderRosterPick();
+  renderScorecardEntry();
+  renderScanReview();
 }
 
 async function saveRound(tripId) {
