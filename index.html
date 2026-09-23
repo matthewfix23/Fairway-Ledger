@@ -1,0 +1,1352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Fairway Ledger</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- Firebase (free tier) provides the shared database. See SETUP.md for the
+     one-time steps to create your project and fill in the config below. -->
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
+<script>
+  // ---- PASTE YOUR FIREBASE CONFIG HERE (see SETUP.md, step 3) ----
+  window.__FIREBASE_CONFIG__ = {
+    apiKey: "AIzaSyDXD5b_p4nKvgvjVXzmVJ1tA_PhYmUFCt0",
+    authDomain: "fairway-ledger-3bad6.firebaseapp.com",
+    projectId: "fairway-ledger-3bad6",
+    storageBucket: "fairway-ledger-3bad6.firebasestorage.app",
+    messagingSenderId: "573241203044",
+    appId: "1:573241203044:web:336a2ea8c2f5b3b3c5c271"
+  };
+</script>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #eceee0;
+    --paper-deep: #e2e4d2;
+    --card: #f4f5ea;
+    --ink: #1d2a1e;
+    --ink-soft: #4a5a49;
+    --fairway: #2f5233;
+    --fairway-deep: #21391f;
+    --fairway-bright: #4f7942;
+    --flag: #a13a2c;
+    --gold: #a9832f;
+    --line: #c7c2a2;
+    --line-soft: #dad6bd;
+    --radius-card: 3px;
+    color-scheme: light;
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  * { box-sizing: inherit; }
+  html { scroll-padding-top: env(safe-area-inset-top, 0px); }
+  html, body {
+    height: 100%;
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+  body {
+    background-image:
+      linear-gradient(var(--paper-deep) 1px, transparent 1px);
+    background-size: 100% 32px;
+    background-attachment: local;
+  }
+  h1, h2, h3, .display {
+    font-family: 'Fraunces', Georgia, serif;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--fairway-deep);
+    margin: 0;
+  }
+  .num { font-variant-numeric: tabular-nums; }
+  a { color: inherit; }
+  button {
+    font-family: inherit;
+    cursor: pointer;
+  }
+  input, select, textarea {
+    font-family: inherit;
+    font-size: inherit;
+    color: var(--ink);
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    padding: 7px 9px;
+  }
+  input:focus, select:focus, textarea:focus, button:focus-visible {
+    outline: 2px solid var(--fairway-bright);
+    outline-offset: 1px;
+  }
+
+  /* ---------- shell ---------- */
+  #app { min-height: 100%; display: flex; flex-direction: column; }
+
+  header.top {
+    position: sticky;
+    top: 0;
+    top: env(safe-area-inset-top, 0px);
+    z-index: 20;
+    background: var(--fairway-deep);
+    color: #f1efdf;
+    padding: 14px 20px calc(14px);
+    padding-top: calc(14px + env(safe-area-inset-top, 0px));
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    border-bottom: 3px solid var(--gold);
+  }
+  header.top .brand { display: flex; align-items: baseline; gap: 10px; cursor: pointer; }
+  header.top .brand .mark {
+    font-family: 'Fraunces', serif;
+    font-weight: 700;
+    font-size: 1.35rem;
+    color: #f1efdf;
+    letter-spacing: -0.01em;
+  }
+  header.top .brand .flagpole { color: var(--gold); font-size: 1.1rem; }
+  .headerRight { display: flex; align-items: center; gap: 14px; }
+  nav.crumbs { font-size: 0.82rem; color: #cdd6c4; }
+  nav.crumbs a:hover { color: #fff; }
+  #authArea { font-size: 0.78rem; }
+  .signin-link { color: #d8dfc9; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+  .signin-link:hover { color: #fff; }
+  .owner-pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    color: #f1efdf; background: rgba(255,255,255,0.08);
+    padding: 4px 10px; border-radius: 12px; font-size: 0.74rem;
+  }
+  .owner-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--gold); }
+  .owner-pill button {
+    background: none; border: none; color: #cdd6c4; font-size: 0.74rem;
+    text-decoration: underline; padding: 0; cursor: pointer;
+  }
+  .owner-pill button:hover { color: #fff; }
+
+  main {
+    flex: 1;
+    width: 100%;
+    max-width: 780px;
+    margin: 0 auto;
+    padding: 28px 20px 80px;
+  }
+
+  .tag {
+    text-transform: none;
+    font-size: 0.78rem;
+    color: var(--ink-soft);
+  }
+
+  /* ---------- buttons ---------- */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--fairway);
+    color: #fff;
+    border: none;
+    padding: 9px 16px;
+    border-radius: 2px;
+    font-size: 0.88rem;
+    font-weight: 600;
+    transition: background 0.15s ease;
+  }
+  .btn:hover { background: var(--fairway-deep); }
+  .btn.ghost {
+    background: transparent;
+    color: var(--fairway-deep);
+    border: 1px solid var(--line);
+  }
+  .btn.ghost:hover { background: var(--card); }
+  .btn.danger { background: var(--flag); }
+  .btn.danger:hover { background: #802a20; }
+  .btn:disabled { opacity: 0.5; cursor: default; }
+  .btn.small { padding: 5px 10px; font-size: 0.78rem; }
+
+  /* ---------- ledger list (home) ---------- */
+  .section-head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    margin-bottom: 14px;
+    border-bottom: 2px solid var(--ink);
+    padding-bottom: 8px;
+  }
+  .section-head h2 { font-size: 1.5rem; }
+
+  .ledger { border-top: 1px solid var(--line); }
+  .ledger-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 4px 16px;
+    padding: 16px 4px;
+    border-bottom: 1px solid var(--line);
+    cursor: pointer;
+    transition: background 0.12s ease;
+  }
+  .ledger-row:hover { background: var(--card); }
+  .ledger-row .name { font-family: 'Fraunces', serif; font-size: 1.15rem; font-weight: 600; color: var(--fairway-deep); }
+  .ledger-row .meta { grid-column: 1 / 2; font-size: 0.82rem; color: var(--ink-soft); }
+  .ledger-row .lead {
+    grid-column: 2 / 3;
+    grid-row: 1 / 3;
+    align-self: center;
+    text-align: right;
+    font-size: 0.8rem;
+    color: var(--ink-soft);
+  }
+  .ledger-row .lead .who { color: var(--fairway-deep); font-weight: 700; font-family: 'Fraunces', serif; font-size: 0.95rem; }
+  .empty {
+    padding: 30px 8px;
+    color: var(--ink-soft);
+    font-size: 0.92rem;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .toolbar { display: flex; gap: 10px; flex-wrap: wrap; margin: 18px 0 6px; }
+
+  /* ---------- trip header ---------- */
+  .trip-head {
+    background: var(--fairway-deep);
+    color: #f1efdf;
+    padding: 22px 24px;
+    border-radius: var(--radius-card);
+    margin-bottom: 22px;
+    position: relative;
+    overflow: hidden;
+  }
+  .trip-head::after {
+    content: "";
+    position: absolute; right: -30px; top: -30px;
+    width: 140px; height: 140px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(169,131,47,0.35), transparent 70%);
+  }
+  .trip-head h1 { color: #f7f5e6; font-size: 1.9rem; }
+  .trip-head .loc { color: #cdd6c4; font-size: 0.95rem; margin-top: 4px; }
+  .trip-head .stats { display: flex; gap: 26px; margin-top: 16px; flex-wrap: wrap; }
+  .trip-head .stat .n { font-family: 'Fraunces', serif; font-size: 1.5rem; font-weight: 700; color: #f1efdf; }
+  .trip-head .stat .l { font-size: 0.72rem; color: #b9c3ae; }
+
+  /* ---------- leaderboard ---------- */
+  table.board { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+  table.board th {
+    text-align: left;
+    font-weight: 600;
+    font-size: 0.72rem;
+    color: var(--ink-soft);
+    padding: 0 8px 8px;
+    border-bottom: 2px solid var(--ink);
+  }
+  table.board th.num, table.board td.num { text-align: right; }
+  table.board td { padding: 10px 8px; border-bottom: 1px solid var(--line-soft); }
+  table.board tr.rank1 td.rankcell { color: var(--gold); font-weight: 800; }
+  table.board td.rankcell { font-family: 'Fraunces', serif; font-weight: 700; color: var(--ink-soft); width: 24px; }
+  table.board td.player { font-weight: 600; color: var(--fairway-deep); }
+  .topar-under { color: var(--fairway); font-weight: 700; }
+  .topar-over { color: var(--flag); font-weight: 700; }
+  .topar-even { color: var(--ink-soft); font-weight: 700; }
+
+  /* ---------- course list (accordion, ledger-styled) ---------- */
+  .course-row { border-bottom: 1px solid var(--line); }
+  .course-row .chead {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 4px 16px;
+    padding: 16px 4px;
+    cursor: pointer;
+    transition: background 0.12s ease;
+  }
+  .course-row .chead:hover { background: var(--card); }
+  .course-row.open .chead { background: var(--card); }
+  .course-row .chead .name { font-family: 'Fraunces', serif; font-size: 1.15rem; font-weight: 600; color: var(--fairway-deep); }
+  .course-row .chead .meta { grid-column: 1 / 2; font-size: 0.82rem; color: var(--ink-soft); }
+  .course-row .chead .lead {
+    grid-column: 2 / 3;
+    grid-row: 1 / 3;
+    align-self: center;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    text-align: right;
+    font-size: 0.8rem;
+    color: var(--ink-soft);
+  }
+  .course-row .chead .lead .who { color: var(--fairway-deep); font-weight: 700; font-family: 'Fraunces', serif; font-size: 0.95rem; }
+  .course-row .chead .chev { color: var(--ink-soft); transition: transform 0.15s ease; }
+  .course-row.open .chead .chev { transform: rotate(90deg); }
+  .course-row .cdrawer { display: none; padding: 4px 4px 22px; }
+  .course-row.open .cdrawer { display: block; }
+
+  /* ---------- rounds ---------- */
+  .round-card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-card);
+    margin-bottom: 12px;
+    overflow: hidden;
+  }
+  .round-card .rhead {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    cursor: pointer;
+    gap: 12px;
+  }
+  .round-card .rhead:hover { background: rgba(0,0,0,0.02); }
+  .round-card .rhead .rtitle { font-family: 'Fraunces', serif; font-weight: 600; color: var(--fairway-deep); }
+  .round-card .rhead .rdate { font-size: 0.78rem; color: var(--ink-soft); }
+  .round-card .rbody { padding: 0 16px 16px; border-top: 1px solid var(--line-soft); display: none; }
+  .round-card.open .rbody { display: block; }
+  .round-card .chev { transition: transform 0.15s ease; color: var(--ink-soft); }
+  .round-card.open .chev { transform: rotate(90deg); }
+
+  /* ---------- scorecard grid ---------- */
+  .scorecard-wrap { overflow-x: auto; margin-top: 12px; -webkit-overflow-scrolling: touch; }
+  table.scorecard { border-collapse: collapse; width: 100%; min-width: 640px; font-size: 0.82rem; }
+  table.scorecard th, table.scorecard td {
+    border: 1px solid var(--line);
+    padding: 6px 4px;
+    text-align: center;
+    min-width: 30px;
+  }
+  table.scorecard th.holecell, table.scorecard td.holecell { color: var(--ink-soft); font-weight: 600; background: var(--paper-deep); }
+  table.scorecard th.rowlabel, table.scorecard td.rowlabel {
+    text-align: left; min-width: 110px; font-weight: 600; color: var(--fairway-deep);
+    background: var(--card); position: sticky; left: 0;
+  }
+  table.scorecard td.sum, table.scorecard th.sum { font-weight: 700; background: var(--paper-deep); }
+  table.scorecard td.under { color: var(--fairway); font-weight: 700; }
+  table.scorecard td.over { color: var(--flag); font-weight: 700; }
+  table.scorecard input.score-in {
+    width: 30px; text-align: center; padding: 4px 2px; border: none;
+    background: transparent; font-variant-numeric: tabular-nums;
+  }
+  table.scorecard input.par-in {
+    width: 26px; text-align: center; padding: 3px 2px; border: none;
+    background: transparent; color: var(--ink-soft); font-size: 0.78rem;
+  }
+
+  /* ---------- forms ---------- */
+  .field { margin-bottom: 14px; }
+  .field label { display: block; font-size: 0.78rem; color: var(--ink-soft); margin-bottom: 4px; font-weight: 600; }
+  .field input, .field select { width: 100%; }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .row3 { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 12px; }
+
+  .roster-pick { display: flex; flex-wrap: wrap; gap: 8px; }
+  .roster-pick label {
+    display: flex; align-items: center; gap: 6px;
+    border: 1px solid var(--line); border-radius: 20px;
+    padding: 6px 12px 6px 8px; font-size: 0.85rem; cursor: pointer;
+    background: #fff;
+  }
+  .roster-pick input { width: auto; }
+  .roster-pick label.checked { background: var(--fairway); color: #fff; border-color: var(--fairway); }
+
+  .trip-roster-list {
+    max-height: 280px;
+    overflow-y: auto;
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    background: #fff;
+  }
+  .trip-roster-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .trip-roster-row:last-child { border-bottom: none; }
+  .trip-roster-row label { display: flex; align-items: center; gap: 8px; font-size: 0.88rem; cursor: pointer; }
+  .trip-roster-row input[type="checkbox"] { width: auto; }
+  .trip-roster-row input.trip-roster-hcp { width: 100px; padding: 5px 7px; font-size: 0.82rem; }
+
+  .hcp-tag { font-size: 0.76em; font-weight: 400; color: var(--ink-soft); }
+
+  /* ---------- modal ---------- */
+  .overlay {
+    position: fixed; inset: 0; background: rgba(20,25,15,0.55);
+    display: flex; align-items: flex-start; justify-content: center;
+    padding: 40px 16px; overflow-y: auto; z-index: 50;
+  }
+  .modal {
+    background: var(--paper); border-radius: var(--radius-card);
+    max-width: 640px; width: 100%; padding: 24px;
+    border: 1px solid var(--line);
+    box-shadow: 0 12px 40px rgba(0,0,0,0.25);
+  }
+  .modal h2 { font-size: 1.3rem; margin-bottom: 18px; }
+  .modal .actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+
+  /* ---------- players page ---------- */
+  .player-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 4px; border-bottom: 1px solid var(--line);
+  }
+  .player-row .pname { font-family: 'Fraunces', serif; font-weight: 600; font-size: 1.05rem; color: var(--fairway-deep); }
+  .player-row .phcp { font-size: 0.78rem; color: var(--ink-soft); }
+
+  .badge {
+    display: inline-block; font-size: 0.68rem; font-weight: 700;
+    padding: 2px 7px; border-radius: 10px; margin-left: 6px;
+    background: var(--gold); color: #fff; vertical-align: middle;
+  }
+
+  footer.foot {
+    text-align: center; font-size: 0.75rem; color: var(--ink-soft);
+    padding: 30px 20px calc(40px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .status-pill {
+    font-size: 0.72rem; color: var(--ink-soft); display: flex; align-items: center; gap: 6px;
+  }
+  .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--gold); }
+  .status-dot.live { background: var(--fairway-bright); }
+
+  @media (max-width: 520px) {
+    .row2, .row3 { grid-template-columns: 1fr; }
+    .trip-head .stats { gap: 18px; }
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #171d15;
+      --paper-deep: #1d241a;
+      --card: #202719;
+      --ink: #e9ead9;
+      --ink-soft: #9aa68f;
+      --line: #3a4232;
+      --line-soft: #2b3226;
+      --fairway: #6fa876;
+      --fairway-deep: #0f1a0f;
+      --fairway-bright: #7fbf82;
+      --gold: #d3ad5e;
+    }
+    body { background-image: linear-gradient(var(--paper-deep) 1px, transparent 1px); }
+    .modal, .round-card, .player-row input, .roster-pick label { background: var(--card); }
+    input, select, textarea { background: #23291d; color: var(--ink); }
+    table.scorecard th.rowlabel, table.scorecard td.rowlabel { background: var(--card); }
+  }
+  :root[data-theme="dark"] {
+    --paper: #171d15; --paper-deep: #1d241a; --card: #202719;
+    --ink: #e9ead9; --ink-soft: #9aa68f; --line: #3a4232; --line-soft: #2b3226;
+    --fairway: #6fa876; --fairway-deep: #0f1a0f; --fairway-bright: #7fbf82; --gold: #d3ad5e;
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <header class="top">
+    <div class="brand" onclick="location.hash='#/'">
+      <span class="flagpole">⛳</span>
+      <span class="mark">Fairway Ledger</span>
+    </div>
+    <div class="headerRight">
+      <nav class="crumbs" id="crumbs"></nav>
+      <span id="authArea"></span>
+    </div>
+  </header>
+  <main id="main">
+    <p class="tag">Loading the clubhouse…</p>
+  </main>
+  <footer class="foot">
+    <span class="status-pill"><span class="status-dot" id="statusDot"></span><span id="statusText">Connecting…</span></span>
+  </footer>
+</div>
+
+<script>
+/* ======================= Data layer (Firebase) ======================= */
+let db = null;
+let auth = null;
+let dbState = "connecting"; // connecting | live | unavailable | badconfig
+let isOwner = false; // true once the site owner signs in; controls whether edit UI is shown
+const store = { players: [], trips: [], roundsByTrip: {} };
+const unsubs = { players: null, trips: null, rounds: {} };
+const DEFAULT_PAR = [4,4,3,4,5,4,3,4,5, 4,4,3,4,5,4,3,4,5]; // 18 holes, par 72
+
+function setStatus(state, text) {
+  dbState = state;
+  document.getElementById('statusText').textContent = text;
+  document.getElementById('statusDot').classList.toggle('live', state === 'live');
+}
+
+function renderAuthArea() {
+  const el = document.getElementById('authArea');
+  if (!el) return;
+  if (isOwner) {
+    el.innerHTML = `<span class="owner-pill"><span class="dot"></span> Signed in <button onclick="doSignOut()">Sign out</button></span>`;
+  } else {
+    el.innerHTML = `<span class="signin-link" onclick="openLoginModal()">Owner sign in</span>`;
+  }
+}
+
+function initDb() {
+  const cfg = window.__FIREBASE_CONFIG__ || {};
+  if (!cfg.apiKey || cfg.apiKey === "PASTE_ME") {
+    setStatus("badconfig", "Firebase isn't configured yet — see SETUP.md");
+    render();
+    return;
+  }
+  try {
+    firebase.initializeApp(cfg);
+    db = firebase.firestore();
+    auth = firebase.auth();
+  } catch (e) {
+    setStatus("unavailable", "Couldn't connect — check your Firebase config");
+    render();
+    return;
+  }
+
+  auth.onAuthStateChanged(user => {
+    isOwner = !!user;
+    renderAuthArea();
+    render();
+  });
+
+  setStatus("live", "Connected — viewing live");
+
+  unsubs.players = db.collection("players").orderBy("name").onSnapshot(
+    snap => { store.players = snap.docs.map(d => ({ id: d.id, ...d.data() })); render(); },
+    err => setStatus("unavailable", "Roster sync interrupted")
+  );
+
+  unsubs.trips = db.collection("trips").orderBy("createdAt", "desc").onSnapshot(
+    snap => {
+      store.trips = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      store.trips.forEach(t => watchRounds(t.id));
+      render();
+    },
+    err => setStatus("unavailable", "Trip sync interrupted")
+  );
+}
+
+function watchRounds(tripId) {
+  if (unsubs.rounds[tripId]) return;
+  unsubs.rounds[tripId] = db.collection(`trips/${tripId}/rounds`).orderBy("date", "desc").onSnapshot(
+    snap => {
+      store.roundsByTrip[tripId] = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      render();
+    },
+    err => {}
+  );
+}
+
+/* ======================= Helpers ======================= */
+function uid() { return Math.random().toString(36).slice(2, 10); }
+function fmtDate(iso) {
+  if (!iso) return "";
+  const d = new Date(iso + "T12:00:00");
+  if (isNaN(d)) return iso;
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+function fmtRange(a, b) {
+  if (!a && !b) return "";
+  if (a && b && a !== b) return `${fmtDate(a)} – ${fmtDate(b)}`;
+  return fmtDate(a || b);
+}
+function toParLabel(n) {
+  if (n === 0) return "E";
+  return n > 0 ? `+${n}` : `${n}`;
+}
+function toParClass(n) {
+  return n < 0 ? "topar-under" : n > 0 ? "topar-over" : "topar-even";
+}
+function sumHoles(arr, from, to) {
+  let s = 0;
+  for (let i = from; i < to; i++) s += (Number(arr[i]) || 0);
+  return s;
+}
+function playerName(id) {
+  const p = store.players.find(p => p.id === id);
+  return p ? p.name : "Unknown";
+}
+function escapeHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+/* Safe to drop inside onclick="...('${jsAttr(x)}')" — escapes for the JS
+   single-quoted string literal first, then for the HTML double-quoted attribute. */
+function jsAttr(s) {
+  return String(s ?? "")
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/"/g, '&quot;');
+}
+
+/* Aggregate a trip's rounds into per-player totals */
+function tripLeaderboard(tripId) {
+  const rounds = store.roundsByTrip[tripId] || [];
+  const agg = {};
+  rounds.forEach(r => {
+    const par = r.par || DEFAULT_PAR;
+    const parTotal = sumHoles(par, 0, 18);
+    Object.entries(r.scores || {}).forEach(([pid, holes]) => {
+      const played = holes.filter(h => Number(h) > 0).length;
+      if (played === 0) return;
+      const total = sumHoles(holes, 0, 18);
+      if (!agg[pid]) agg[pid] = { rounds: 0, strokes: 0, parSum: 0, best: null };
+      agg[pid].rounds += 1;
+      agg[pid].strokes += total;
+      agg[pid].parSum += parTotal;
+      if (agg[pid].best === null || total < agg[pid].best) agg[pid].best = total;
+    });
+  });
+  return Object.entries(agg)
+    .map(([pid, a]) => ({ pid, ...a, toPar: a.strokes - a.parSum }))
+    .sort((x, y) => x.toPar - y.toPar);
+}
+
+/* Group a trip's rounds by course played, preserving most-recent-first order */
+function tripCourses(tripId) {
+  const rounds = store.roundsByTrip[tripId] || [];
+  const trip = store.trips.find(t => t.id === tripId);
+  const groups = [];
+  const byKey = {};
+  rounds.forEach(r => {
+    const name = (r.course || (trip && trip.course) || 'Unspecified course').trim() || 'Unspecified course';
+    const key = name.toLowerCase();
+    if (!byKey[key]) {
+      byKey[key] = { key, name, rounds: [] };
+      groups.push(byKey[key]);
+    }
+    byKey[key].rounds.push(r);
+  });
+  return groups;
+}
+
+function courseLeaderboard(rounds) {
+  const agg = {};
+  rounds.forEach(r => {
+    const par = r.par || DEFAULT_PAR;
+    const parTotal = sumHoles(par, 0, 18);
+    Object.entries(r.scores || {}).forEach(([pid, holes]) => {
+      const played = holes.filter(h => Number(h) > 0).length;
+      if (played === 0) return;
+      const total = sumHoles(holes, 0, 18);
+      if (!agg[pid]) agg[pid] = { rounds: 0, strokes: 0, parSum: 0, best: null };
+      agg[pid].rounds += 1;
+      agg[pid].strokes += total;
+      agg[pid].parSum += parTotal;
+      if (agg[pid].best === null || total < agg[pid].best) agg[pid].best = total;
+    });
+  });
+  return Object.entries(agg)
+    .map(([pid, a]) => ({ pid, ...a, toPar: a.strokes - a.parSum }))
+    .sort((x, y) => x.toPar - y.toPar);
+}
+
+function careerStats() {
+  const agg = {};
+  store.trips.forEach(t => {
+    const board = tripLeaderboard(t.id);
+    board.forEach((row, idx) => {
+      if (!agg[row.pid]) agg[row.pid] = { rounds: 0, strokes: 0, parSum: 0, best: null, wins: 0, trips: 0 };
+      agg[row.pid].rounds += row.rounds;
+      agg[row.pid].strokes += row.strokes;
+      agg[row.pid].parSum += row.parSum;
+      agg[row.pid].trips += 1;
+      if (agg[row.pid].best === null || row.best < agg[row.pid].best) agg[row.pid].best = row.best;
+      if (idx === 0) agg[row.pid].wins += 1;
+    });
+  });
+  return Object.entries(agg)
+    .map(([pid, a]) => ({ pid, ...a, toPar: a.strokes - a.parSum, avg: a.rounds ? (a.strokes / a.rounds) : 0 }))
+    .sort((x, y) => x.toPar - y.toPar);
+}
+
+/* ======================= Routing ======================= */
+window.addEventListener('hashchange', render);
+
+function route() {
+  const h = location.hash.replace(/^#\/?/, '');
+  const parts = h.split('/').filter(Boolean);
+  return parts;
+}
+
+/* ======================= Render ======================= */
+function render() {
+  const parts = route();
+  const main = document.getElementById('main');
+  const crumbs = document.getElementById('crumbs');
+  crumbs.innerHTML = '';
+
+  if (parts[0] === 'trip' && parts[1]) {
+    renderTrip(parts[1], main, crumbs, parts[2], parts[3]);
+  } else if (parts[0] === 'players') {
+    crumbs.innerHTML = `<a href="#/">Home</a>`;
+    renderPlayers(main);
+  } else if (parts[0] === 'stats') {
+    crumbs.innerHTML = `<a href="#/">Home</a>`;
+    renderStats(main);
+  } else {
+    renderHome(main);
+  }
+}
+
+function renderHome(main) {
+  const trips = store.trips;
+  let rows = trips.map(t => {
+    const board = tripLeaderboard(t.id);
+    const rounds = store.roundsByTrip[t.id] || [];
+    const leader = board[0];
+    return `
+      <div class="ledger-row" onclick="location.hash='#/trip/${t.id}'">
+        <div class="name">${escapeHtml(t.name)}</div>
+        <div class="meta">${escapeHtml(t.location || '')}${t.location ? ' · ' : ''}${fmtRange(t.startDate, t.endDate)}${t.course ? ' · ' + escapeHtml(t.course) : ''}</div>
+        <div class="lead">
+          <div>${rounds.length} round${rounds.length === 1 ? '' : 's'}</div>
+          ${leader ? `<div class="who">${escapeHtml(playerName(leader.pid))} ${toParLabel(leader.toPar)}</div>` : `<div>No scores yet</div>`}
+        </div>
+      </div>`;
+  }).join('');
+
+  if (!trips.length) {
+    rows = `<div class="empty">No trips on the books yet. Start a ledger for your next golf trip.</div>`;
+  }
+
+  main.innerHTML = `
+    <div class="section-head">
+      <h2>Trips</h2>
+    </div>
+    <div class="ledger">${rows}</div>
+    <div class="toolbar">
+      ${isOwner ? `<button class="btn" onclick="openTripModal()">+ New trip</button>` : ''}
+      <button class="btn ghost" onclick="location.hash='#/players'">Roster</button>
+      <button class="btn ghost" onclick="location.hash='#/stats'">Career stats</button>
+    </div>
+  `;
+}
+
+function buildScorecardTable(r) {
+  const par = r.par || DEFAULT_PAR;
+  const entries = Object.entries(r.scores || {}).filter(([, h]) => h.some(x => Number(x) > 0));
+  const parOut = sumHoles(par, 0, 9), parIn = sumHoles(par, 9, 18), parTotal = parOut + parIn;
+  const front9 = (arr) => arr.slice(0, 9);
+  const back9 = (arr) => arr.slice(9, 18);
+
+  const headerRowHtml = `
+    <tr>
+      <th class="rowlabel">Hole</th>
+      ${par.slice(0,9).map((p,i)=>`<th class="holecell">${i+1}</th>`).join('')}
+      <th class="sum">OUT</th>
+      ${par.slice(9,18).map((p,i)=>`<th class="holecell">${i+10}</th>`).join('')}
+      <th class="sum">IN</th>
+      <th class="sum">TOT</th>
+    </tr>`;
+  const parRowHtml = `
+    <tr>
+      <td class="rowlabel">Par</td>
+      ${par.slice(0,9).map(p=>`<td class="holecell">${p}</td>`).join('')}
+      <td class="sum">${parOut}</td>
+      ${par.slice(9,18).map(p=>`<td class="holecell">${p}</td>`).join('')}
+      <td class="sum">${parIn}</td>
+      <td class="sum">${parTotal}</td>
+    </tr>`;
+  const bodyRowsHtml = entries.map(([pid, holes]) => {
+    const out = sumHoles(holes, 0, 9), inn = sumHoles(holes, 9, 18), tot = out + inn;
+    const cellsFront = front9(holes).map((h, i) => {
+      const n = Number(h) || 0;
+      const cls = n === 0 ? '' : (n < par[i] ? 'under' : n > par[i] ? 'over' : '');
+      return `<td class="${cls}">${n || '–'}</td>`;
+    }).join('');
+    const cellsBack = back9(holes).map((h, i) => {
+      const n = Number(h) || 0;
+      const cls = n === 0 ? '' : (n < par[i+9] ? 'under' : n > par[i+9] ? 'over' : '');
+      return `<td class="${cls}">${n || '–'}</td>`;
+    }).join('');
+    return `<tr>
+      <td class="rowlabel">${escapeHtml(playerName(pid))}</td>
+      ${cellsFront}
+      <td class="sum">${out || '–'}</td>
+      ${cellsBack}
+      <td class="sum">${inn || '–'}</td>
+      <td class="sum ${toParClass(tot - parTotal)}">${tot || '–'}</td>
+    </tr>`;
+  }).join('');
+
+  return `<table class="scorecard">${headerRowHtml}${parRowHtml}${bodyRowsHtml}</table>`;
+}
+
+function renderRoundCard(tripId, r, isOpen) {
+  const entries = Object.entries(r.scores || {}).filter(([, h]) => h.some(x => Number(x) > 0));
+  return `
+    <div class="round-card ${isOpen ? 'open' : ''}" id="round-${r.id}">
+      <div class="rhead" onclick="toggleRound('${r.id}')">
+        <div>
+          <div class="rtitle">${fmtDate(r.date)}</div>
+          <div class="rdate">${entries.length} player${entries.length===1?'':'s'}</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          ${isOwner ? `<button class="btn small danger" onclick="event.stopPropagation(); deleteRound('${tripId}','${r.id}')">Delete</button>` : ''}
+          <span class="chev">›</span>
+        </div>
+      </div>
+      <div class="rbody">
+        <div class="scorecard-wrap">${buildScorecardTable(r)}</div>
+      </div>
+    </div>`;
+}
+
+function tripHandicap(trip, pid) {
+  const h = trip && trip.roster && trip.roster[pid];
+  return h ? String(h).trim() : '';
+}
+function playerCell(trip, pid) {
+  const hcp = tripHandicap(trip, pid);
+  return `${escapeHtml(playerName(pid))}${hcp ? ` <span class="hcp-tag">(${escapeHtml(hcp)})</span>` : ''}`;
+}
+
+function renderTrip(tripId, main, crumbs, courseSlug, openRoundId) {
+  const trip = store.trips.find(t => t.id === tripId);
+  crumbs.innerHTML = `<a href="#/">Home</a>`;
+  if (!trip) {
+    main.innerHTML = `<p class="tag">This trip isn't in the ledger (yet). <a href="#/">Back home</a></p>`;
+    return;
+  }
+  watchRounds(tripId);
+  const rounds = store.roundsByTrip[tripId] || [];
+  const board = tripLeaderboard(tripId);
+  const courses = tripCourses(tripId);
+
+  const openCourseKey = courseSlug ? decodeURIComponent(courseSlug).toLowerCase() : null;
+
+  const boardRows = board.map((row, i) => `
+    <tr class="${i === 0 ? 'rank1' : ''}">
+      <td class="rankcell">${i + 1}</td>
+      <td class="player">${playerCell(trip, row.pid)}</td>
+      <td class="num">${row.rounds}</td>
+      <td class="num">${row.strokes}</td>
+      <td class="num ${toParClass(row.toPar)}">${toParLabel(row.toPar)}</td>
+      <td class="num">${row.best ?? '–'}</td>
+    </tr>`).join('') || `<tr><td colspan="6" class="empty" style="border:none;">No rounds logged yet.</td></tr>`;
+
+  const courseRows = courses.map(c => {
+    const isOpen = (openCourseKey && c.key === openCourseKey);
+    const cBoard = courseLeaderboard(c.rounds);
+    const leader = cBoard[0];
+    const dates = c.rounds.map(r => r.date).filter(Boolean).sort();
+    const dateMeta = dates.length ? fmtRange(dates[0], dates[dates.length - 1]) : '';
+    const cBoardRows = cBoard.map((row, i) => `
+      <tr class="${i === 0 ? 'rank1' : ''}">
+        <td class="rankcell">${i + 1}</td>
+        <td class="player">${playerCell(trip, row.pid)}</td>
+        <td class="num">${row.rounds}</td>
+        <td class="num">${row.strokes}</td>
+        <td class="num ${toParClass(row.toPar)}">${toParLabel(row.toPar)}</td>
+      </tr>`).join('');
+    const roundCards = c.rounds.map(r => renderRoundCard(tripId, r, r.id === openRoundId)).join('');
+
+    return `
+      <div class="course-row ${isOpen ? 'open' : ''}" id="courserow-${c.key}">
+        <div class="chead" onclick="toggleCourseRow('${jsAttr(c.key)}')">
+          <div class="name">${escapeHtml(c.name)}</div>
+          <div class="meta">${c.rounds.length} round${c.rounds.length===1?'':'s'}${dateMeta ? ' · ' + dateMeta : ''}</div>
+          <div class="lead">
+            <div>
+              ${leader ? `<div class="who">${escapeHtml(playerName(leader.pid))} ${toParLabel(leader.toPar)}</div>` : `<div>No scores yet</div>`}
+            </div>
+            <span class="chev">›</span>
+          </div>
+        </div>
+        <div class="cdrawer">
+          ${cBoard.length ? `
+            <table class="board" style="margin-bottom:18px;">
+              <thead><tr><th></th><th>Player</th><th class="num">Rds</th><th class="num">Strokes</th><th class="num">To par</th></tr></thead>
+              <tbody>${cBoardRows}</tbody>
+            </table>` : ''}
+          ${roundCards}
+          ${isOwner ? `<button class="btn small ghost" onclick="event.stopPropagation(); openRoundModal('${tripId}', '${jsAttr(c.name)}')">+ Add round here</button>` : ''}
+        </div>
+      </div>`;
+  }).join('');
+
+  const courseListHtml = courses.length
+    ? `<div class="ledger">${courseRows}</div>`
+    : `<div class="empty">No courses played yet on this trip.${isOwner ? ' Add the first one to start the scorecard.' : ''}</div>`;
+
+  const rosterCount = Object.keys(trip.roster || {}).length;
+
+  main.innerHTML = `
+    <div class="trip-head">
+      <h1>${escapeHtml(trip.name)}</h1>
+      <div class="loc">${escapeHtml(trip.location || '')}${trip.location ? ' · ' : ''}${fmtRange(trip.startDate, trip.endDate)}</div>
+      <div class="stats">
+        <div class="stat"><div class="n">${rosterCount}</div><div class="l">PLAYERS</div></div>
+        <div class="stat"><div class="n">${courses.length}</div><div class="l">COURSES</div></div>
+        <div class="stat"><div class="n">${rounds.length}</div><div class="l">ROUNDS</div></div>
+        <div class="stat"><div class="n">${board[0] ? toParLabel(board[0].toPar) : '–'}</div><div class="l">TRIP LEADER</div></div>
+      </div>
+    </div>
+
+    <div class="section-head"><h2>Overall leaderboard</h2></div>
+    <table class="board">
+      <thead><tr><th></th><th>Player</th><th class="num">Rds</th><th class="num">Strokes</th><th class="num">To par</th><th class="num">Best</th></tr></thead>
+      <tbody>${boardRows}</tbody>
+    </table>
+
+    <div class="section-head" style="margin-top:30px;"><h2>Courses played</h2></div>
+    ${courseListHtml}
+
+    ${isOwner ? `
+    <div class="toolbar">
+      <button class="btn" onclick="openRoundModal('${tripId}')">+ Add course</button>
+      <button class="btn ghost" onclick="openTripModal('${tripId}')">Edit trip</button>
+      <button class="btn danger" onclick="deleteTrip('${tripId}')">Delete trip</button>
+    </div>` : ''}
+  `;
+
+  if (openRoundId) {
+    const el = document.getElementById(`round-${openRoundId}`);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } else if (openCourseKey) {
+    const el = document.getElementById(`courserow-${openCourseKey}`);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+}
+
+function toggleCourseRow(key) {
+  const el = document.getElementById(`courserow-${key}`);
+  if (el) el.classList.toggle('open');
+}
+
+function toggleRound(roundId) {
+  const el = document.getElementById(`round-${roundId}`);
+  if (el) el.classList.toggle('open');
+}
+
+function renderPlayers(main) {
+  const rows = store.players.map(p => `
+    <div class="player-row">
+      <div>
+        <span class="pname">${escapeHtml(p.name)}</span>
+        ${p.handicap !== undefined && p.handicap !== null && p.handicap !== '' ? `<span class="phcp">HCP ${p.handicap}</span>` : ''}
+      </div>
+      ${isOwner ? `<button class="btn small ghost" onclick="removePlayer('${p.id}')">Remove</button>` : ''}
+    </div>`).join('') || `<div class="empty">No one on the roster yet.</div>`;
+
+  main.innerHTML = `
+    <div class="section-head"><h2>Roster</h2></div>
+    <div>${rows}</div>
+    ${isOwner ? `
+    <div class="toolbar">
+      <form onsubmit="return addPlayerSubmit(event)" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+        <div class="field" style="margin:0;">
+          <label>Name</label>
+          <input type="text" id="newPlayerName" placeholder="Player name" required>
+        </div>
+        <div class="field" style="margin:0;">
+          <label>Handicap (optional)</label>
+          <input type="text" id="newPlayerHcp" placeholder="e.g. 12.4" style="width:120px;">
+        </div>
+        <button class="btn" type="submit">+ Add player</button>
+      </form>
+    </div>` : ''}
+  `;
+}
+
+function renderStats(main) {
+  const agg = careerStats();
+  const rows = agg.map((row, i) => `
+    <tr class="${i === 0 ? 'rank1' : ''}">
+      <td class="rankcell">${i + 1}</td>
+      <td class="player">${escapeHtml(playerName(row.pid))} ${row.wins > 0 ? `<span class="badge">${row.wins} trip win${row.wins===1?'':'s'}</span>` : ''}</td>
+      <td class="num">${row.trips}</td>
+      <td class="num">${row.rounds}</td>
+      <td class="num">${row.avg ? row.avg.toFixed(1) : '–'}</td>
+      <td class="num">${row.best ?? '–'}</td>
+      <td class="num ${toParClass(row.toPar)}">${toParLabel(row.toPar)}</td>
+    </tr>`).join('') || `<tr><td colspan="7" class="empty" style="border:none;">No rounds logged yet across any trip.</td></tr>`;
+
+  main.innerHTML = `
+    <div class="section-head"><h2>Career stats</h2></div>
+    <table class="board">
+      <thead><tr><th></th><th>Player</th><th class="num">Trips</th><th class="num">Rounds</th><th class="num">Avg</th><th class="num">Best</th><th class="num">To par</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
+/* ======================= Mutations ======================= */
+async function addPlayerSubmit(e) {
+  e.preventDefault();
+  if (!isOwner) return false;
+  const name = document.getElementById('newPlayerName').value.trim();
+  const hcp = document.getElementById('newPlayerHcp').value.trim();
+  if (!name || !db) return false;
+  const data = { name, createdAt: Date.now() };
+  if (hcp) data.handicap = hcp;
+  await db.collection('players').add(data);
+  document.getElementById('newPlayerName').value = '';
+  document.getElementById('newPlayerHcp').value = '';
+  return false;
+}
+
+async function removePlayer(id) {
+  if (!db || !isOwner) return;
+  if (!confirm('Remove this player from the roster? Past scores stay in the ledger.')) return;
+  await db.collection('players').doc(id).delete();
+}
+
+async function deleteTrip(tripId) {
+  if (!db || !isOwner) return;
+  if (!confirm('Delete this whole trip, including its rounds? This cannot be undone.')) return;
+  const rounds = store.roundsByTrip[tripId] || [];
+  for (const r of rounds) {
+    await db.collection(`trips/${tripId}/rounds`).doc(r.id).delete();
+  }
+  await db.collection('trips').doc(tripId).delete();
+  location.hash = '#/';
+}
+
+async function deleteRound(tripId, roundId) {
+  if (!db || !isOwner) return;
+  if (!confirm('Delete this round?')) return;
+  await db.collection(`trips/${tripId}/rounds`).doc(roundId).delete();
+}
+
+/* ======================= Trip modal ======================= */
+/* ======================= Owner sign-in ======================= */
+function openLoginModal() {
+  const wrap = document.createElement('div');
+  wrap.className = 'overlay';
+  wrap.innerHTML = `
+    <div class="modal" style="max-width:380px;">
+      <h2>Owner sign in</h2>
+      <form id="loginForm">
+        <div class="field"><label>Email</label>
+          <input type="email" id="loginEmail" required autocomplete="username">
+        </div>
+        <div class="field"><label>Password</label>
+          <input type="password" id="loginPassword" required autocomplete="current-password">
+        </div>
+        <p id="loginErr" class="tag" style="color:var(--flag); display:none;"></p>
+        <div class="actions">
+          <button type="button" class="btn ghost" onclick="closeModal()">Cancel</button>
+          <button type="submit" class="btn">Sign in</button>
+        </div>
+      </form>
+    </div>`;
+  document.body.appendChild(wrap);
+  wrap.addEventListener('click', (e) => { if (e.target === wrap) closeModal(); });
+  document.getElementById('loginForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!auth) return;
+    const email = document.getElementById('loginEmail').value.trim();
+    const password = document.getElementById('loginPassword').value;
+    const errEl = document.getElementById('loginErr');
+    try {
+      await auth.signInWithEmailAndPassword(email, password);
+      closeModal();
+    } catch (err) {
+      errEl.textContent = "Couldn't sign in — check the email and password.";
+      errEl.style.display = 'block';
+    }
+  });
+}
+
+function doSignOut() {
+  if (auth) auth.signOut();
+}
+
+function openTripModal(tripId) {
+  if (!isOwner) return;
+  const editing = !!tripId;
+  const trip = editing ? store.trips.find(t => t.id === tripId) : null;
+  const roster = (trip && trip.roster) || {};
+  const wrap = document.createElement('div');
+  wrap.className = 'overlay';
+
+  const rosterRows = store.players.map(p => {
+    const checked = Object.prototype.hasOwnProperty.call(roster, p.id);
+    const hcpVal = checked ? (roster[p.id] || '') : '';
+    return `
+      <div class="trip-roster-row">
+        <label><input type="checkbox" class="trip-roster-check" value="${p.id}" ${checked ? 'checked' : ''}> ${escapeHtml(p.name)}</label>
+        <input type="text" class="trip-roster-hcp" data-pid="${p.id}" placeholder="Handicap" value="${escapeHtml(hcpVal)}">
+      </div>`;
+  }).join('') || `<p class="tag">No players on the roster yet — add some on the Roster page, then come back to build this trip's roster.</p>`;
+
+  wrap.innerHTML = `
+    <div class="modal">
+      <h2>${editing ? 'Edit trip' : 'New trip'}</h2>
+      <form id="tripForm">
+        <div class="field"><label>Trip name</label>
+          <input type="text" id="tName" required value="${trip ? escapeHtml(trip.name) : ''}" placeholder="e.g. Pinehurst Weekend">
+        </div>
+        <div class="row2">
+          <div class="field"><label>Location</label>
+            <input type="text" id="tLocation" required value="${trip ? escapeHtml(trip.location || '') : ''}" placeholder="e.g. Pinehurst, NC">
+          </div>
+          <div class="field"><label>Home course <span class="tag">(optional)</span></label>
+            <input type="text" id="tCourse" value="${trip ? escapeHtml(trip.course || '') : ''}" placeholder="e.g. Pinehurst No. 2">
+          </div>
+        </div>
+        <div class="row2">
+          <div class="field"><label>Start date <span class="tag">(optional)</span></label>
+            <input type="date" id="tStart" value="${trip ? trip.startDate || '' : ''}">
+          </div>
+          <div class="field"><label>End date <span class="tag">(optional)</span></label>
+            <input type="date" id="tEnd" value="${trip ? trip.endDate || '' : ''}">
+          </div>
+        </div>
+        <div class="field">
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+            <label style="margin:0;">Trip roster — check who's coming and set their handicap for this trip</label>
+            <div style="display:flex; gap:8px; flex-shrink:0;">
+              <button type="button" class="btn ghost small" onclick="selectAllTripRoster()">Select all</button>
+              <button type="button" class="btn ghost small" onclick="clearAllTripRoster()">Clear</button>
+            </div>
+          </div>
+          <div class="trip-roster-list">${rosterRows}</div>
+        </div>
+        <div class="actions">
+          <button type="button" class="btn ghost" onclick="closeModal()">Cancel</button>
+          <button type="submit" class="btn">${editing ? 'Save' : 'Create trip'}</button>
+        </div>
+      </form>
+    </div>`;
+  document.body.appendChild(wrap);
+  wrap.addEventListener('click', (e) => { if (e.target === wrap) closeModal(); });
+  document.getElementById('tripForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!db || !isOwner) { closeModal(); return; }
+
+    const newRoster = {};
+    let anySelected = false;
+    document.querySelectorAll('.trip-roster-check').forEach(cb => {
+      if (cb.checked) {
+        anySelected = true;
+        const hcpInput = document.querySelector(`.trip-roster-hcp[data-pid="${cb.value}"]`);
+        newRoster[cb.value] = hcpInput ? hcpInput.value.trim() : '';
+      }
+    });
+    if (!anySelected) { alert("Select at least one player for the trip roster."); return; }
+
+    const data = {
+      name: document.getElementById('tName').value.trim(),
+      location: document.getElementById('tLocation').value.trim(),
+      course: document.getElementById('tCourse').value.trim(),
+      startDate: document.getElementById('tStart').value,
+      endDate: document.getElementById('tEnd').value,
+      roster: newRoster,
+    };
+    if (editing) {
+      await db.collection('trips').doc(tripId).update(data);
+    } else {
+      data.createdAt = Date.now();
+      const ref = await db.collection('trips').add(data);
+      closeModal();
+      location.hash = `#/trip/${ref.id}`;
+      return;
+    }
+    closeModal();
+  });
+}
+
+function selectAllTripRoster() {
+  document.querySelectorAll('.trip-roster-check').forEach(cb => { cb.checked = true; });
+}
+function clearAllTripRoster() {
+  document.querySelectorAll('.trip-roster-check').forEach(cb => { cb.checked = false; });
+}
+
+/* ======================= Round modal (full scorecard entry) ======================= */
+function openRoundModal(tripId, presetCourse) {
+  if (!isOwner) return;
+  const trip = store.trips.find(t => t.id === tripId);
+  if (!trip) return;
+  const wrap = document.createElement('div');
+  wrap.className = 'overlay';
+  wrap.id = 'roundOverlay';
+
+  // Scope the picker to this trip's roster when one has been set; fall back
+  // to the full player list for trips created before rosters existed.
+  const tripRoster = trip.roster || {};
+  const rosterList = Object.keys(tripRoster).length
+    ? store.players.filter(p => Object.prototype.hasOwnProperty.call(tripRoster, p.id))
+    : store.players;
+
+  // Default the player picker to whoever played the trip's most recent round —
+  // usually the same group, so this saves re-clicking everyone each time.
+  const allRounds = store.roundsByTrip[tripId] || [];
+  const lastRound = allRounds[0];
+  const defaultPlayers = lastRound
+    ? Object.entries(lastRound.scores || {}).filter(([, h]) => h.some(x => Number(x) > 0)).map(([pid]) => pid)
+    : rosterList.map(p => p.id);
+  const defaultCourse = presetCourse || (allRounds.length ? '' : (trip.course || ''));
+
+  wrap.innerHTML = `
+    <div class="modal" style="max-width:900px;">
+      <h2>${presetCourse ? `Add round — ${escapeHtml(presetCourse)}` : `Add a course — ${escapeHtml(trip.name)}`}</h2>
+      <div class="row3">
+        <div class="field"><label>Course</label>
+          <input type="text" id="rCourse" value="${escapeHtml(defaultCourse)}" placeholder="Course name" ${presetCourse ? 'readonly' : ''}>
+        </div>
+        <div class="field"><label>Date</label>
+          <input type="date" id="rDate" value="${new Date().toISOString().slice(0,10)}">
+        </div>
+        <div class="field"><label>Par (total)</label>
+          <input type="text" id="rParTotal" readonly value="72">
+        </div>
+      </div>
+      <div class="field">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+          <label style="margin:0;">Who played</label>
+          <div style="display:flex; gap:8px;">
+            <button type="button" class="btn ghost small" onclick="selectAllRoster()">Select all</button>
+            <button type="button" class="btn ghost small" onclick="clearAllRoster()">Clear</button>
+          </div>
+        </div>
+        <div class="roster-pick" id="rosterPick"></div>
+      </div>
+      <div id="scorecardEntryWrap" class="field"></div>
+      <div class="actions">
+        <button type="button" class="btn ghost" onclick="closeModal()">Cancel</button>
+        <button type="button" class="btn" onclick="saveRound('${tripId}')">Save round</button>
+      </div>
+    </div>`;
+  document.body.appendChild(wrap);
+  wrap.addEventListener('click', (e) => { if (e.target === wrap) closeModal(); });
+
+  window.__roundState = {
+    par: DEFAULT_PAR.slice(),
+    rosterList,
+    players: defaultPlayers.filter(pid => rosterList.some(p => p.id === pid)),
+  };
+  renderRosterPick();
+  renderScorecardEntry();
+}
+
+function renderRosterPick() {
+  const st = window.__roundState;
+  const el = document.getElementById('rosterPick');
+  if (!el) return;
+  el.innerHTML = st.rosterList.map(p => `
+    <label id="pick-${p.id}" class="${st.players.includes(p.id) ? 'checked' : ''}">
+      <input type="checkbox" value="${p.id}" ${st.players.includes(p.id) ? 'checked' : ''} onchange="toggleRoundPlayer('${p.id}')"> ${escapeHtml(p.name)}
+    </label>`).join('') || `<span class="tag">No players on this trip's roster yet — edit the trip to add some.</span>`;
+}
+
+function toggleRoundPlayer(pid) {
+  const st = window.__roundState;
+  const label = document.getElementById(`pick-${pid}`);
+  const idx = st.players.indexOf(pid);
+  if (idx === -1) { st.players.push(pid); label.classList.add('checked'); }
+  else { st.players.splice(idx, 1); label.classList.remove('checked'); }
+  renderScorecardEntry();
+}
+
+function selectAllRoster() {
+  window.__roundState.players = window.__roundState.rosterList.map(p => p.id);
+  renderRosterPick();
+  renderScorecardEntry();
+}
+
+function clearAllRoster() {
+  window.__roundState.players = [];
+  renderRosterPick();
+  renderScorecardEntry();
+}
+
+function renderScorecardEntry() {
+  const st = window.__roundState;
+  const holderEl = document.getElementById('scorecardEntryWrap');
+  if (!holderEl) return;
+  if (st.players.length === 0) {
+    holderEl.innerHTML = `<p class="tag">Select who played to enter scores.</p>`;
+    return;
+  }
+  const parRow = `<tr>
+      <td class="rowlabel">Par</td>
+      ${st.par.map((p, i) => `<td class="holecell"><input class="par-in" data-hole="${i}" type="number" min="3" max="6" value="${p}" onchange="updatePar(${i}, this.value)"></td>`).join('')}
+      <td class="sum">${sumHoles(st.par,0,18)}</td>
+    </tr>`;
+  const headerRow = `<tr><th class="rowlabel">Hole</th>${st.par.map((p,i)=>`<th class="holecell">${i+1}</th>`).join('')}<th class="sum">TOT</th></tr>`;
+  const bodyRows = st.players.map(pid => {
+    const cells = st.par.map((p, i) =>
+      `<td><input class="score-in" type="number" min="1" max="12" data-pid="${pid}" data-hole="${i}" oninput="updateScoreTotal('${pid}')"></td>`
+    ).join('');
+    return `<tr>
+      <td class="rowlabel">${escapeHtml(playerName(pid))}</td>
+      ${cells}
+      <td class="sum" id="tot-${pid}">–</td>
+    </tr>`;
+  }).join('');
+
+  holderEl.innerHTML = `
+    <label>Scorecard</label>
+    <div class="scorecard-wrap">
+      <table class="scorecard">
+        ${headerRow}
+        ${parRow}
+        ${bodyRows}
+      </table>
+    </div>
+  `;
+  document.getElementById('rParTotal').value = sumHoles(st.par, 0, 18);
+}
+
+function updatePar(holeIdx, val) {
+  window.__roundState.par[holeIdx] = Number(val) || 4;
+  document.getElementById('rParTotal').value = sumHoles(window.__roundState.par, 0, 18);
+  // recompute totals shown
+  window.__roundState.players.forEach(pid => updateScoreTotal(pid));
+}
+
+function updateScoreTotal(pid) {
+  const inputs = document.querySelectorAll(`input.score-in[data-pid="${pid}"]`);
+  let total = 0, any = false;
+  inputs.forEach(inp => { const v = Number(inp.value); if (v > 0) { total += v; any = true; } });
+  const cell = document.getElementById(`tot-${pid}`);
+  if (cell) cell.textContent = any ? total : '–';
+}
+
+async function saveRound(tripId) {
+  if (!db || !isOwner) { closeModal(); return; }
+  const st = window.__roundState;
+  if (!st.players.length) { alert('Select at least one player.'); return; }
+  const scores = {};
+  st.players.forEach(pid => {
+    const holes = [];
+    for (let i = 0; i < 18; i++) {
+      const inp = document.querySelector(`input.score-in[data-pid="${pid}"][data-hole="${i}"]`);
+      holes.push(inp ? (Number(inp.value) || 0) : 0);
+    }
+    scores[pid] = holes;
+  });
+  const data = {
+    course: document.getElementById('rCourse').value.trim(),
+    date: document.getElementById('rDate').value || new Date().toISOString().slice(0,10),
+    par: st.par,
+    scores,
+    createdAt: Date.now(),
+  };
+  const ref = await db.collection(`trips/${tripId}/rounds`).add(data);
+  closeModal();
+  watchRounds(tripId);
+  const courseKey = (data.course || (store.trips.find(t => t.id === tripId)?.course) || 'Unspecified course').trim().toLowerCase() || 'unspecified course';
+  location.hash = `#/trip/${tripId}/${encodeURIComponent(courseKey)}/${ref.id}`;
+}
+
+function closeModal() {
+  const ov = document.querySelector('.overlay');
+  if (ov) ov.remove();
+  window.__roundState = null;
+}
+
+/* ======================= Boot ======================= */
+initDb();
+render();
+</script>
+</body>
+</html>
