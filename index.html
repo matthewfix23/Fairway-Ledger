@@ -668,8 +668,12 @@ function jsAttr(s) {
 }
 
 /* Aggregate a trip's rounds into per-player totals */
-function tripLeaderboard(tripId) {
-  const rounds = store.roundsByTrip[tripId] || [];
+/* Shared aggregation for both the trip-wide and per-course leaderboards.
+   Net-to-par uses each player's trip handicap: when a round has tee
+   rating/slope on file, a real course handicap is computed (WHS formula);
+   otherwise the raw handicap index is used as a simple stroke allowance. */
+function buildLeaderboard(rounds, trip) {
+  const roster = (trip && trip.roster) || {};
   const agg = {};
   rounds.forEach(r => {
     const par = r.par || DEFAULT_PAR;
@@ -678,16 +682,35 @@ function tripLeaderboard(tripId) {
       const played = holes.filter(h => Number(h) > 0).length;
       if (played === 0) return;
       const total = sumHoles(holes, 0, 18);
-      if (!agg[pid]) agg[pid] = { rounds: 0, strokes: 0, parSum: 0, best: null };
+      if (!agg[pid]) agg[pid] = { rounds: 0, strokes: 0, parSum: 0, best: null, netToParSum: 0, hasHandicap: false };
       agg[pid].rounds += 1;
       agg[pid].strokes += total;
       agg[pid].parSum += parTotal;
       if (agg[pid].best === null || total < agg[pid].best) agg[pid].best = total;
+
+      const hcpStr = roster[pid];
+      const hi = hcpStr ? parseFloat(hcpStr) : NaN;
+      if (hcpStr && !isNaN(hi)) {
+        const courseHcp = (r.courseRating && r.slopeRating)
+          ? Math.round(hi * (Number(r.slopeRating) / 113) + (Number(r.courseRating) - parTotal))
+          : Math.round(hi);
+        agg[pid].netToParSum += (total - parTotal) - courseHcp;
+        agg[pid].hasHandicap = true;
+      }
     });
   });
   return Object.entries(agg)
-    .map(([pid, a]) => ({ pid, ...a, toPar: a.strokes - a.parSum }))
+    .map(([pid, a]) => ({
+      pid, ...a,
+      toPar: a.strokes - a.parSum,
+      netToPar: a.hasHandicap ? a.netToParSum : null,
+    }))
     .sort((x, y) => x.toPar - y.toPar);
+}
+
+function tripLeaderboard(tripId) {
+  const trip = store.trips.find(t => t.id === tripId);
+  return buildLeaderboard(store.roundsByTrip[tripId] || [], trip);
 }
 
 /* Group a trip's rounds by course played, preserving most-recent-first order */
@@ -717,25 +740,8 @@ function tripCourses(tripId) {
   return groups;
 }
 
-function courseLeaderboard(rounds) {
-  const agg = {};
-  rounds.forEach(r => {
-    const par = r.par || DEFAULT_PAR;
-    const parTotal = sumHoles(par, 0, 18);
-    Object.entries(r.scores || {}).forEach(([pid, holes]) => {
-      const played = holes.filter(h => Number(h) > 0).length;
-      if (played === 0) return;
-      const total = sumHoles(holes, 0, 18);
-      if (!agg[pid]) agg[pid] = { rounds: 0, strokes: 0, parSum: 0, best: null };
-      agg[pid].rounds += 1;
-      agg[pid].strokes += total;
-      agg[pid].parSum += parTotal;
-      if (agg[pid].best === null || total < agg[pid].best) agg[pid].best = total;
-    });
-  });
-  return Object.entries(agg)
-    .map(([pid, a]) => ({ pid, ...a, toPar: a.strokes - a.parSum }))
-    .sort((x, y) => x.toPar - y.toPar);
+function courseLeaderboard(rounds, trip) {
+  return buildLeaderboard(rounds, trip);
 }
 
 function careerStats() {
@@ -781,6 +787,9 @@ function render() {
   } else if (parts[0] === 'stats') {
     crumbs.innerHTML = `<a href="#/">Home</a>`;
     renderStats(main);
+  } else if (parts[0] === 'courses') {
+    crumbs.innerHTML = `<a href="#/">Home</a>`;
+    renderAllCourses(main, parts[1]);
   } else {
     renderHome(main);
   }
@@ -815,6 +824,7 @@ function renderHome(main) {
     <div class="toolbar">
       ${isOwner ? `<button class="btn" onclick="openTripModal()">+ New trip</button>` : ''}
       <button class="btn ghost" onclick="location.hash='#/players'">Roster</button>
+      <button class="btn ghost" onclick="location.hash='#/courses'">Courses played</button>
       <button class="btn ghost" onclick="location.hash='#/stats'">Career stats</button>
     </div>
   `;
@@ -884,6 +894,7 @@ function renderRoundCard(tripId, r, isOpen) {
           ${teeBits.length ? `<div class="rtee">${escapeHtml(teeBits.join(' · '))}</div>` : ''}
         </div>
         <div style="display:flex;align-items:center;gap:10px;">
+          ${isOwner ? `<button class="btn small ghost" onclick="event.stopPropagation(); editRound('${tripId}','${r.id}')">Edit</button>` : ''}
           ${isOwner ? `<button class="btn small danger" onclick="event.stopPropagation(); deleteRound('${tripId}','${r.id}')">Delete</button>` : ''}
           <span class="chev">›</span>
         </div>
@@ -922,14 +933,14 @@ function renderTrip(tripId, main, crumbs, courseSlug, openRoundId) {
       <td class="rankcell">${i + 1}</td>
       <td class="player">${playerCell(trip, row.pid)}</td>
       <td class="num">${row.rounds}</td>
-      <td class="num">${row.strokes}</td>
       <td class="num ${toParClass(row.toPar)}">${toParLabel(row.toPar)}</td>
+      <td class="num">${row.netToPar === null ? '–' : `<span class="${toParClass(row.netToPar)}">${toParLabel(row.netToPar)}</span>`}</td>
       <td class="num">${row.best ?? '–'}</td>
     </tr>`).join('') || `<tr><td colspan="6" class="empty" style="border:none;">No rounds logged yet.</td></tr>`;
 
   const courseRows = courses.map(c => {
     const isOpen = (openCourseKey && c.key === openCourseKey);
-    const cBoard = courseLeaderboard(c.rounds);
+    const cBoard = courseLeaderboard(c.rounds, trip);
     const leader = cBoard[0];
     const dates = c.rounds.map(r => r.date).filter(Boolean).sort();
     const dateMeta = dates.length ? fmtRange(dates[0], dates[dates.length - 1]) : '';
@@ -938,8 +949,8 @@ function renderTrip(tripId, main, crumbs, courseSlug, openRoundId) {
         <td class="rankcell">${i + 1}</td>
         <td class="player">${playerCell(trip, row.pid)}</td>
         <td class="num">${row.rounds}</td>
-        <td class="num">${row.strokes}</td>
         <td class="num ${toParClass(row.toPar)}">${toParLabel(row.toPar)}</td>
+        <td class="num">${row.netToPar === null ? '–' : `<span class="${toParClass(row.netToPar)}">${toParLabel(row.netToPar)}</span>`}</td>
       </tr>`).join('');
     const roundCards = c.rounds.map(r => renderRoundCard(tripId, r, r.id === openRoundId)).join('');
 
@@ -958,7 +969,7 @@ function renderTrip(tripId, main, crumbs, courseSlug, openRoundId) {
         <div class="cdrawer">
           ${cBoard.length ? `
             <table class="board" style="margin-bottom:18px;">
-              <thead><tr><th></th><th>Player</th><th class="num">Rds</th><th class="num">Strokes</th><th class="num">To par</th></tr></thead>
+              <thead><tr><th></th><th>Player</th><th class="num">Rds</th><th class="num">Gross to par</th><th class="num">Net to par</th></tr></thead>
               <tbody>${cBoardRows}</tbody>
             </table>` : ''}
           ${roundCards}
@@ -987,7 +998,7 @@ function renderTrip(tripId, main, crumbs, courseSlug, openRoundId) {
 
     <div class="section-head"><h2>Overall leaderboard</h2></div>
     <table class="board">
-      <thead><tr><th></th><th>Player</th><th class="num">Rds</th><th class="num">Strokes</th><th class="num">To par</th><th class="num">Best</th></tr></thead>
+      <thead><tr><th></th><th>Player</th><th class="num">Rds</th><th class="num">Gross to par</th><th class="num">Net to par</th><th class="num">Best</th></tr></thead>
       <tbody>${boardRows}</tbody>
     </table>
 
@@ -1051,6 +1062,85 @@ function renderPlayers(main) {
   `;
 }
 
+/* Aggregate every course played across all trips, for the "Courses played"
+   directory. Net-to-par isn't shown here since handicaps are trip-specific;
+   this view sticks to gross scoring. */
+function allCoursesPlayed() {
+  const byKey = {};
+  const groups = [];
+  store.trips.forEach(t => {
+    const rounds = store.roundsByTrip[t.id] || [];
+    rounds.forEach(r => {
+      const name = (r.course || t.course || 'Unspecified course').trim() || 'Unspecified course';
+      const key = name.toLowerCase();
+      if (!byKey[key]) {
+        byKey[key] = { key, name, rounds: [], trips: {} };
+        groups.push(byKey[key]);
+      }
+      byKey[key].rounds.push(r);
+      if (!byKey[key].trips[t.id]) byKey[key].trips[t.id] = { tripId: t.id, tripName: t.name, count: 0 };
+      byKey[key].trips[t.id].count += 1;
+    });
+  });
+  return groups
+    .map(g => ({ ...g, tripList: Object.values(g.trips) }))
+    .sort((a, b) => b.rounds.length - a.rounds.length);
+}
+
+function renderAllCourses(main, openKey) {
+  const groups = allCoursesPlayed();
+  const decodedOpenKey = openKey ? decodeURIComponent(openKey).toLowerCase() : null;
+
+  const rows = groups.map(g => {
+    const isOpen = decodedOpenKey === g.key;
+    const dates = g.rounds.map(r => r.date).filter(Boolean).sort();
+    const dateMeta = dates.length ? fmtRange(dates[0], dates[dates.length - 1]) : '';
+    const board = buildLeaderboard(g.rounds, null);
+    const leader = board[0];
+    const boardRows = board.map((row, i) => `
+      <tr class="${i === 0 ? 'rank1' : ''}">
+        <td class="rankcell">${i + 1}</td>
+        <td class="player">${escapeHtml(playerName(row.pid))}</td>
+        <td class="num">${row.rounds}</td>
+        <td class="num ${toParClass(row.toPar)}">${toParLabel(row.toPar)}</td>
+        <td class="num">${row.best ?? '–'}</td>
+      </tr>`).join('');
+    const tripsHtml = g.tripList.map(t => `
+      <div class="player-row">
+        <a href="#/trip/${t.tripId}/${encodeURIComponent(g.key)}"><span class="pname">${escapeHtml(t.tripName)}</span></a>
+        <span class="phcp">${t.count} round${t.count===1?'':'s'}</span>
+      </div>`).join('');
+
+    return `
+      <div class="course-row ${isOpen ? 'open' : ''}" id="courserow-${g.key}">
+        <div class="chead" onclick="toggleCourseRow('${jsAttr(g.key)}')">
+          <div class="name">${escapeHtml(g.name)}</div>
+          <div class="meta">${g.rounds.length} round${g.rounds.length===1?'':'s'} · ${g.tripList.length} trip${g.tripList.length===1?'':'s'}${dateMeta ? ' · ' + dateMeta : ''}</div>
+          <div class="lead">
+            <div>
+              ${leader ? `<div class="who">${escapeHtml(playerName(leader.pid))} ${toParLabel(leader.toPar)}</div>` : `<div>No scores yet</div>`}
+            </div>
+            <span class="chev">›</span>
+          </div>
+        </div>
+        <div class="cdrawer">
+          ${board.length ? `
+            <table class="board" style="margin-bottom:14px;">
+              <thead><tr><th></th><th>Player</th><th class="num">Rds</th><th class="num">Gross to par</th><th class="num">Best</th></tr></thead>
+              <tbody>${boardRows}</tbody>
+            </table>` : ''}
+          <label class="tag">Played on</label>
+          <div>${tripsHtml}</div>
+        </div>
+      </div>`;
+  }).join('');
+
+  main.innerHTML = `
+    <div class="section-head"><h2>Courses played</h2></div>
+    <div class="ledger">${rows || `<div class="empty">No rounds logged yet across any trip.</div>`}</div>
+  `;
+}
+
 function renderStats(main) {
   const agg = careerStats();
   const rows = agg.map((row, i) => `
@@ -1067,7 +1157,7 @@ function renderStats(main) {
   main.innerHTML = `
     <div class="section-head"><h2>Career stats</h2></div>
     <table class="board">
-      <thead><tr><th></th><th>Player</th><th class="num">Trips</th><th class="num">Rounds</th><th class="num">Avg</th><th class="num">Best</th><th class="num">To par</th></tr></thead>
+      <thead><tr><th></th><th>Player</th><th class="num">Trips</th><th class="num">Rounds</th><th class="num">Avg</th><th class="num">Best</th><th class="num">Gross to par</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
   `;
@@ -1103,6 +1193,13 @@ async function deleteTrip(tripId) {
   }
   await db.collection('trips').doc(tripId).delete();
   location.hash = '#/';
+}
+
+function editRound(tripId, roundId) {
+  if (!isOwner) return;
+  const round = (store.roundsByTrip[tripId] || []).find(r => r.id === roundId);
+  if (!round) return;
+  openRoundModal(tripId, null, round);
 }
 
 async function deleteRound(tripId, roundId) {
@@ -1241,11 +1338,16 @@ function clearAllTripRoster() {
   document.querySelectorAll('.trip-roster-check').forEach(cb => { cb.checked = false; });
 }
 
-/* ======================= Round modal (full scorecard entry) ======================= */
-function openRoundModal(tripId, presetCourse) {
+/* ======================= Round modal (full scorecard entry) =======================
+   presetCourse: lock the course name (adding another round to an existing course tab)
+   editingRound: pass an existing round object (with .id) to edit it in place —
+   the roster picker still lets you check additional players who weren't
+   originally recorded, and the Course field becomes editable again. */
+function openRoundModal(tripId, presetCourse, editingRound) {
   if (!isOwner) return;
   const trip = store.trips.find(t => t.id === tripId);
   if (!trip) return;
+  const editing = !!editingRound;
   const wrap = document.createElement('div');
   wrap.className = 'overlay';
   wrap.id = 'roundOverlay';
@@ -1261,20 +1363,23 @@ function openRoundModal(tripId, presetCourse) {
   // usually the same group, so this saves re-clicking everyone each time.
   const allRounds = store.roundsByTrip[tripId] || [];
   const lastRound = allRounds[0];
-  const defaultPlayers = lastRound
-    ? Object.entries(lastRound.scores || {}).filter(([, h]) => h.some(x => Number(x) > 0)).map(([pid]) => pid)
-    : rosterList.map(p => p.id);
-  const defaultCourse = presetCourse || '';
+  const defaultPlayers = editing
+    ? Object.keys(editingRound.scores || {})
+    : (lastRound
+        ? Object.entries(lastRound.scores || {}).filter(([, h]) => h.some(x => Number(x) > 0)).map(([pid]) => pid)
+        : rosterList.map(p => p.id));
+  const defaultCourse = editing ? (editingRound.course || '') : (presetCourse || '');
+  const courseLocked = !editing && !!presetCourse;
 
   wrap.innerHTML = `
     <div class="modal" style="max-width:900px;">
-      <h2>${presetCourse ? `Add round — ${escapeHtml(presetCourse)}` : `Add a course — ${escapeHtml(trip.name)}`}</h2>
+      <h2>${editing ? `Edit round — ${escapeHtml(defaultCourse || trip.name)}` : (presetCourse ? `Add round — ${escapeHtml(presetCourse)}` : `Add a course — ${escapeHtml(trip.name)}`)}</h2>
       <div class="row3">
         <div class="field"><label>Course</label>
-          <input type="text" id="rCourse" value="${escapeHtml(defaultCourse)}" placeholder="Course name" ${presetCourse ? 'readonly' : ''}>
+          <input type="text" id="rCourse" value="${escapeHtml(defaultCourse)}" placeholder="Course name" ${courseLocked ? 'readonly' : ''}>
         </div>
         <div class="field"><label>Date</label>
-          <input type="date" id="rDate" value="${new Date().toISOString().slice(0,10)}">
+          <input type="date" id="rDate" value="${editing ? (editingRound.date || '') : new Date().toISOString().slice(0,10)}">
         </div>
         <div class="field"><label>Par (total)</label>
           <input type="text" id="rParTotal" readonly value="72">
@@ -1283,7 +1388,7 @@ function openRoundModal(tripId, presetCourse) {
       <div class="field" id="courseLookupField">
         <label>Look up the course <span class="tag">(fills in par, and lets you pick a tee for rating/slope)</span></label>
         <div class="course-search-row">
-          <input type="text" id="courseSearchInput" placeholder="Search course name…" value="${escapeHtml(presetCourse || '')}">
+          <input type="text" id="courseSearchInput" placeholder="Search course name…" value="${escapeHtml(defaultCourse)}">
           <button type="button" class="btn ghost small" onclick="searchCourseForRound()">Search</button>
         </div>
         <div id="courseSearchResults"></div>
@@ -1292,7 +1397,7 @@ function openRoundModal(tripId, presetCourse) {
       </div>
       <div class="field">
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
-          <label style="margin:0;">Who played</label>
+          <label style="margin:0;">Who played ${editing ? '<span class="tag">(check anyone new to add them)</span>' : ''}</label>
           <div style="display:flex; gap:8px;">
             <button type="button" class="btn ghost small" onclick="selectAllRoster()">Select all</button>
             <button type="button" class="btn ghost small" onclick="clearAllRoster()">Clear</button>
@@ -1303,29 +1408,31 @@ function openRoundModal(tripId, presetCourse) {
       <div id="scorecardEntryWrap" class="field"></div>
       <div class="actions">
         <button type="button" class="btn ghost" onclick="closeModal()">Cancel</button>
-        <button type="button" class="btn" onclick="saveRound('${tripId}')">Save round</button>
+        <button type="button" class="btn" onclick="saveRound('${tripId}')">${editing ? 'Save changes' : 'Save round'}</button>
       </div>
     </div>`;
   document.body.appendChild(wrap);
   wrap.addEventListener('click', (e) => { if (e.target === wrap) closeModal(); });
 
   window.__roundState = {
-    par: DEFAULT_PAR.slice(),
+    par: editing ? (editingRound.par || DEFAULT_PAR.slice()) : DEFAULT_PAR.slice(),
     rosterList,
     players: defaultPlayers.filter(pid => rosterList.some(p => p.id === pid)),
-    teeName: null,
-    courseRating: null,
-    slopeRating: null,
-    sourceCourseId: null,
+    existingScores: editing ? (editingRound.scores || {}) : null,
+    editingRoundId: editing ? editingRound.id : null,
+    teeName: editing ? (editingRound.teeName || null) : null,
+    courseRating: editing ? (editingRound.courseRating || null) : null,
+    slopeRating: editing ? (editingRound.slopeRating || null) : null,
+    sourceCourseId: editing ? (editingRound.sourceCourseId || null) : null,
     teeOptions: [],
   };
   renderRosterPick();
   renderScorecardEntry();
 
-  // If we already know the course (adding another round to an existing
-  // course tab), kick off a search for it automatically so the tee/rating
-  // picker can appear without an extra click.
-  if (presetCourse) searchCourseForRound();
+  // If we already know the course (editing, or adding another round to an
+  // existing course tab), kick off a search for it automatically so the
+  // tee/rating picker can appear without an extra click.
+  if (defaultCourse) searchCourseForRound();
 }
 
 /* ---- course search interactions (round modal) ---- */
@@ -1482,9 +1589,11 @@ function renderScorecardEntry() {
     </tr>`;
   const headerRow = `<tr><th class="rowlabel">Hole</th>${st.par.map((p,i)=>`<th class="holecell">${i+1}</th>`).join('')}<th class="sum">TOT</th></tr>`;
   const bodyRows = st.players.map(pid => {
-    const cells = st.par.map((p, i) =>
-      `<td><input class="score-in" type="number" min="1" max="12" data-pid="${pid}" data-hole="${i}" oninput="updateScoreTotal('${pid}')"></td>`
-    ).join('');
+    const existing = st.existingScores && st.existingScores[pid];
+    const cells = st.par.map((p, i) => {
+      const v = existing && Number(existing[i]) > 0 ? existing[i] : '';
+      return `<td><input class="score-in" type="number" min="1" max="12" data-pid="${pid}" data-hole="${i}" value="${v}" oninput="updateScoreTotal('${pid}')"></td>`;
+    }).join('');
     return `<tr>
       <td class="rowlabel">${escapeHtml(playerName(pid))}</td>
       ${cells}
@@ -1503,6 +1612,7 @@ function renderScorecardEntry() {
     </div>
   `;
   document.getElementById('rParTotal').value = sumHoles(st.par, 0, 18);
+  st.players.forEach(pid => updateScoreTotal(pid));
 }
 
 function updatePar(holeIdx, val) {
@@ -1538,17 +1648,24 @@ async function saveRound(tripId) {
     date: document.getElementById('rDate').value || new Date().toISOString().slice(0,10),
     par: st.par,
     scores,
-    createdAt: Date.now(),
   };
   if (st.teeName) data.teeName = st.teeName;
   if (st.courseRating) data.courseRating = st.courseRating;
   if (st.slopeRating) data.slopeRating = st.slopeRating;
   if (st.sourceCourseId) data.sourceCourseId = st.sourceCourseId;
-  const ref = await db.collection(`trips/${tripId}/rounds`).add(data);
+
+  let roundId = st.editingRoundId;
+  if (roundId) {
+    await db.collection(`trips/${tripId}/rounds`).doc(roundId).update(data);
+  } else {
+    data.createdAt = Date.now();
+    const ref = await db.collection(`trips/${tripId}/rounds`).add(data);
+    roundId = ref.id;
+  }
   closeModal();
   watchRounds(tripId);
   const courseKey = (data.course || (store.trips.find(t => t.id === tripId)?.course) || 'Unspecified course').trim().toLowerCase() || 'unspecified course';
-  location.hash = `#/trip/${tripId}/${encodeURIComponent(courseKey)}/${ref.id}`;
+  location.hash = `#/trip/${tripId}/${encodeURIComponent(courseKey)}/${roundId}`;
 }
 
 function closeModal() {
