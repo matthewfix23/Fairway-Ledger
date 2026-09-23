@@ -607,6 +607,15 @@ function tripLeaderboard(tripId) {
 }
 
 /* Group a trip's rounds by course played, preserving most-recent-first order */
+/* The trip's date range is derived from when its rounds were actually
+   played, since trips no longer have manually-entered start/end dates. */
+function tripDateRange(tripId) {
+  const rounds = store.roundsByTrip[tripId] || [];
+  const dates = rounds.map(r => r.date).filter(Boolean).sort();
+  if (!dates.length) return '';
+  return fmtRange(dates[0], dates[dates.length - 1]);
+}
+
 function tripCourses(tripId) {
   const rounds = store.roundsByTrip[tripId] || [];
   const trip = store.trips.find(t => t.id === tripId);
@@ -702,7 +711,7 @@ function renderHome(main) {
     return `
       <div class="ledger-row" onclick="location.hash='#/trip/${t.id}'">
         <div class="name">${escapeHtml(t.name)}</div>
-        <div class="meta">${escapeHtml(t.location || '')}${t.location ? ' · ' : ''}${fmtRange(t.startDate, t.endDate)}${t.course ? ' · ' + escapeHtml(t.course) : ''}</div>
+        <div class="meta">${escapeHtml(t.location || '')}${t.location ? ' · ' : ''}${tripDateRange(t.id)}</div>
         <div class="lead">
           <div>${rounds.length} round${rounds.length === 1 ? '' : 's'}</div>
           ${leader ? `<div class="who">${escapeHtml(playerName(leader.pid))} ${toParLabel(leader.toPar)}</div>` : `<div>No scores yet</div>`}
@@ -879,7 +888,7 @@ function renderTrip(tripId, main, crumbs, courseSlug, openRoundId) {
   main.innerHTML = `
     <div class="trip-head">
       <h1>${escapeHtml(trip.name)}</h1>
-      <div class="loc">${escapeHtml(trip.location || '')}${trip.location ? ' · ' : ''}${fmtRange(trip.startDate, trip.endDate)}</div>
+      <div class="loc">${escapeHtml(trip.location || '')}${trip.location ? ' · ' : ''}${tripDateRange(tripId)}</div>
       <div class="stats">
         <div class="stat"><div class="n">${rosterCount}</div><div class="l">PLAYERS</div></div>
         <div class="stat"><div class="n">${courses.length}</div><div class="l">COURSES</div></div>
@@ -1083,21 +1092,8 @@ function openTripModal(tripId) {
         <div class="field"><label>Trip name</label>
           <input type="text" id="tName" required value="${trip ? escapeHtml(trip.name) : ''}" placeholder="e.g. Pinehurst Weekend">
         </div>
-        <div class="row2">
-          <div class="field"><label>Location</label>
-            <input type="text" id="tLocation" required value="${trip ? escapeHtml(trip.location || '') : ''}" placeholder="e.g. Pinehurst, NC">
-          </div>
-          <div class="field"><label>Home course <span class="tag">(optional)</span></label>
-            <input type="text" id="tCourse" value="${trip ? escapeHtml(trip.course || '') : ''}" placeholder="e.g. Pinehurst No. 2">
-          </div>
-        </div>
-        <div class="row2">
-          <div class="field"><label>Start date <span class="tag">(optional)</span></label>
-            <input type="date" id="tStart" value="${trip ? trip.startDate || '' : ''}">
-          </div>
-          <div class="field"><label>End date <span class="tag">(optional)</span></label>
-            <input type="date" id="tEnd" value="${trip ? trip.endDate || '' : ''}">
-          </div>
+        <div class="field"><label>Location</label>
+          <input type="text" id="tLocation" required value="${trip ? escapeHtml(trip.location || '') : ''}" placeholder="e.g. Pinehurst, NC">
         </div>
         <div class="field">
           <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
@@ -1135,9 +1131,6 @@ function openTripModal(tripId) {
     const data = {
       name: document.getElementById('tName').value.trim(),
       location: document.getElementById('tLocation').value.trim(),
-      course: document.getElementById('tCourse').value.trim(),
-      startDate: document.getElementById('tStart').value,
-      endDate: document.getElementById('tEnd').value,
       roster: newRoster,
     };
     if (editing) {
@@ -1183,7 +1176,7 @@ function openRoundModal(tripId, presetCourse) {
   const defaultPlayers = lastRound
     ? Object.entries(lastRound.scores || {}).filter(([, h]) => h.some(x => Number(x) > 0)).map(([pid]) => pid)
     : rosterList.map(p => p.id);
-  const defaultCourse = presetCourse || (allRounds.length ? '' : (trip.course || ''));
+  const defaultCourse = presetCourse || '';
 
   wrap.innerHTML = `
     <div class="modal" style="max-width:900px;">
