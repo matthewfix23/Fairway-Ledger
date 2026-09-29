@@ -11,9 +11,12 @@
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
-<!-- Leaflet: renders the trips map on the home page (free, no API key). -->
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<!-- d3-geo + topojson: renders a simple, themed US outline for the trips
+     map (no tiles, no external map provider — just a lightweight vector
+     shape drawn in the app's own colors). -->
+<script src="https://cdn.jsdelivr.net/npm/d3-array@3"></script>
+<script src="https://cdn.jsdelivr.net/npm/d3-geo@3"></script>
+<script src="https://unpkg.com/topojson-client@3"></script>
 <script>
   // ---- PASTE YOUR FIREBASE CONFIG HERE (see SETUP.md, step 3) ----
   window.__FIREBASE_CONFIG__ = {
@@ -142,10 +145,21 @@
   .trips-map-wrap {
     border: 1px solid var(--line); border-radius: var(--radius-card);
     overflow: hidden; margin-bottom: 24px; background: var(--card);
+    padding: 14px 14px 10px;
   }
-  #tripsMap { height: 320px; width: 100%; background: var(--paper-deep); }
-  .leaflet-popup-content { font-family: 'Inter', sans-serif; font-size: 0.85rem; }
-  .leaflet-popup-content .mp-name { font-family: 'Fraunces', serif; font-weight: 700; color: var(--fairway-deep); }
+  #tripsMap { width: 100%; }
+  #tripsMap svg { width: 100%; height: auto; display: block; }
+  #tripsMap .us-state { fill: var(--paper-deep); stroke: var(--line-soft); stroke-width: 0.6; }
+  #tripsMap .us-outline { fill: none; stroke: var(--fairway); stroke-width: 1.4; }
+  #tripsMap .trip-marker { cursor: pointer; }
+  #tripsMap .trip-marker circle.dot {
+    fill: var(--flag); stroke: var(--card); stroke-width: 1.6;
+    transition: r 0.1s ease;
+  }
+  #tripsMap .trip-marker:hover circle.dot { fill: var(--gold); }
+  #tripsMap .map-status {
+    padding: 40px 20px; text-align: center; color: var(--ink-soft); font-size: 0.85rem;
+  }
   #authArea { font-size: 0.78rem; }
   .signin-link { color: #d8dfc9; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
   .signin-link:hover { color: #fff; }
@@ -593,48 +607,79 @@ async function ensureTripGeo(trip) {
 
 const OGA_BASE = "https://api.opengolfapi.org/v1";
 
-/* ======================= Trips map (Leaflet + OpenStreetMap, free) ======================= */
-let __tripsMapInstance = null;
-let __leafletIconsFixed = false;
-function fixLeafletIcons() {
-  if (__leafletIconsFixed || typeof L === 'undefined') return;
-  __leafletIconsFixed = true;
-  delete L.Icon.Default.prototype._getIconUrl;
-  L.Icon.Default.mergeOptions({
-    iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-    iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-    shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-  });
+/* ======================= Trips map (themed vector outline, no tiles) =======================
+   Draws a plain, low-detail US states outline in the app's own colors using
+   d3-geo's standard Albers USA projection (the well-known 975×610 layout
+   also used by us-atlas), then plots a dot for each trip at its geocoded
+   location. Loaded once and cached — no map provider, no external imagery. */
+const US_MAP_VIEWBOX = { width: 960, height: 600 };
+let __usMapTopology = null;  // cached raw topology (needed for the outline mesh)
+let __usMapGeo = null;       // cached GeoJSON state features
+let __usMapLoadPromise = null;
+
+function loadUsMapGeo() {
+  if (__usMapGeo) return Promise.resolve(__usMapGeo);
+  if (__usMapLoadPromise) return __usMapLoadPromise;
+  __usMapLoadPromise = fetch('https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json')
+    .then(res => res.json())
+    .then(topology => {
+      __usMapTopology = topology;
+      __usMapGeo = topojson.feature(topology, topology.objects.states);
+      return __usMapGeo;
+    });
+  return __usMapLoadPromise;
 }
 
-function renderTripsMap(trips) {
+function usProjection() {
+  return d3.geoAlbersUsa().scale(1280).translate([US_MAP_VIEWBOX.width / 2, US_MAP_VIEWBOX.height / 2]);
+}
+
+async function renderTripsMap(trips) {
   const container = document.getElementById('tripsMap');
-  if (!container || typeof L === 'undefined') return;
-  fixLeafletIcons();
-  if (__tripsMapInstance) {
-    try { __tripsMapInstance.remove(); } catch (e) {}
-    __tripsMapInstance = null;
+  if (!container) return;
+  if (typeof d3 === 'undefined' || typeof topojson === 'undefined') {
+    container.innerHTML = `<div class="map-status">Map couldn't load.</div>`;
+    return;
   }
+  if (!__usMapGeo) container.innerHTML = `<div class="map-status">Loading map…</div>`;
+
+  let geo;
+  try {
+    geo = await loadUsMapGeo();
+  } catch (err) {
+    container.innerHTML = `<div class="map-status">Map couldn't load — the trip list below still works fine.</div>`;
+    return;
+  }
+  // Bail if the container moved on (e.g. user navigated away while fetching).
+  if (!document.getElementById('tripsMap')) return;
+
+  const projection = usProjection();
+  const pathGen = d3.geoPath(projection);
+
+  const statePaths = geo.features.map(f =>
+    `<path class="us-state" d="${pathGen(f)}"></path>`
+  ).join('');
+  const outlineD = pathGen(topojson.mesh(__usMapTopology, __usMapTopology.objects.states, (a, b) => a === b));
+  const outlinePath = outlineD ? `<path class="us-outline" d="${outlineD}"></path>` : '';
+
   const withGeo = trips.filter(t => typeof t.lat === 'number' && typeof t.lng === 'number');
-  const map = L.map('tripsMap', { scrollWheelZoom: false }).setView([39.8, -98.6], 4);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; OpenStreetMap contributors',
-    maxZoom: 12,
-  }).addTo(map);
+  const markers = withGeo.map(t => {
+    const pt = projection([t.lng, t.lat]);
+    if (!pt) return '';
+    const [x, y] = pt;
+    return `<g class="trip-marker" onclick="location.hash='#/trip/${t.id}'">
+      <title>${escapeHtml(t.name)}${t.location ? ' — ' + escapeHtml(t.location) : ''}</title>
+      <circle class="dot" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="5"></circle>
+    </g>`;
+  }).join('');
 
-  withGeo.forEach(t => {
-    const marker = L.marker([t.lat, t.lng]).addTo(map);
-    marker.bindTooltip(escapeHtml(t.name), { direction: 'top' });
-    marker.on('click', () => { location.hash = `#/trip/${t.id}`; });
-  });
-
-  if (withGeo.length > 1) {
-    map.fitBounds(L.latLngBounds(withGeo.map(t => [t.lat, t.lng])).pad(0.3));
-  } else if (withGeo.length === 1) {
-    map.setView([withGeo[0].lat, withGeo[0].lng], 7);
-  }
-  __tripsMapInstance = map;
-  setTimeout(() => { try { map.invalidateSize(); } catch (e) {} }, 80);
+  container.innerHTML = `
+    <svg viewBox="0 0 ${US_MAP_VIEWBOX.width} ${US_MAP_VIEWBOX.height}" role="img" aria-label="Map of trip locations">
+      <g class="us-states">${statePaths}</g>
+      ${outlinePath}
+      <g class="us-markers">${markers}</g>
+    </svg>
+  `;
 
   // Any trip with a location but no cached coordinates yet gets looked up
   // in the background and the map redraws itself once resolved.
