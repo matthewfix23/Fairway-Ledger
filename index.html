@@ -11,6 +11,9 @@
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
+<!-- Leaflet: renders the trips map on the home page (free, no API key). -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
   // ---- PASTE YOUR FIREBASE CONFIG HERE (see SETUP.md, step 3) ----
   window.__FIREBASE_CONFIG__ = {
@@ -88,11 +91,13 @@
   /* ---------- shell ---------- */
   #app { min-height: 100%; display: flex; flex-direction: column; }
 
-  header.top {
+  .top-shell {
     position: sticky;
     top: 0;
     top: env(safe-area-inset-top, 0px);
     z-index: 20;
+  }
+  header.top {
     background: var(--fairway-deep);
     color: #f1efdf;
     padding: 14px 20px calc(14px);
@@ -115,6 +120,32 @@
   .headerRight { display: flex; align-items: center; gap: 14px; }
   nav.crumbs { font-size: 0.82rem; color: #cdd6c4; }
   nav.crumbs a:hover { color: #fff; }
+
+  /* ---------- persistent section tabs ---------- */
+  .app-tabs {
+    display: flex;
+    gap: 4px;
+    background: var(--paper-deep);
+    border-bottom: 1px solid var(--line);
+    padding: 0 20px;
+    overflow-x: auto;
+  }
+  .apptab {
+    background: none; border: none; border-bottom: 2px solid transparent;
+    color: var(--ink-soft); font-weight: 600; font-size: 0.86rem;
+    padding: 11px 12px; white-space: nowrap; cursor: pointer;
+  }
+  .apptab:hover { color: var(--fairway-deep); }
+  .apptab.active { color: var(--fairway-deep); border-bottom-color: var(--fairway); }
+
+  /* ---------- trips map ---------- */
+  .trips-map-wrap {
+    border: 1px solid var(--line); border-radius: var(--radius-card);
+    overflow: hidden; margin-bottom: 24px; background: var(--card);
+  }
+  #tripsMap { height: 320px; width: 100%; background: var(--paper-deep); }
+  .leaflet-popup-content { font-family: 'Inter', sans-serif; font-size: 0.85rem; }
+  .leaflet-popup-content .mp-name { font-family: 'Fraunces', serif; font-weight: 700; color: var(--fairway-deep); }
   #authArea { font-size: 0.78rem; }
   .signin-link { color: #d8dfc9; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
   .signin-link:hover { color: #fff; }
@@ -490,16 +521,19 @@
 </head>
 <body>
 <div id="app">
-  <header class="top">
-    <div class="brand" onclick="location.hash='#/'">
-      <span class="flagpole">⛳</span>
-      <span class="mark">Fairway Ledger</span>
-    </div>
-    <div class="headerRight">
-      <nav class="crumbs" id="crumbs"></nav>
-      <span id="authArea"></span>
-    </div>
-  </header>
+  <div class="top-shell">
+    <header class="top">
+      <div class="brand" onclick="location.hash='#/'">
+        <span class="flagpole">⛳</span>
+        <span class="mark">Fairway Ledger</span>
+      </div>
+      <div class="headerRight">
+        <nav class="crumbs" id="crumbs"></nav>
+        <span id="authArea"></span>
+      </div>
+    </header>
+    <nav class="app-tabs" id="appTabs"></nav>
+  </div>
   <main id="main">
     <p class="tag">Loading the clubhouse…</p>
   </main>
@@ -522,7 +556,110 @@ const DEFAULT_PAR = [4,4,3,4,5,4,3,4,5, 4,4,3,4,5,4,3,4,5]; // 18 holes, par 72
    Free, keyless, public golf course database: search by name, then pull
    per-hole par and tee ratings/slopes for the selected tee. No account or
    API key needed — this is a courtesy of opengolfapi.org's open dataset. */
+/* ======================= Geocoding (for the trips map) =======================
+   Uses OpenStreetMap's free Nominatim search — no key, no signup. Results
+   are cached onto the trip document the first time they're resolved, so
+   each location is only ever looked up once. */
+async function geocodeLocation(query) {
+  if (!query) return null;
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=us&q=${encodeURIComponent(query)}`;
+    const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+    if (!res.ok) return null;
+    const results = await res.json();
+    if (!results.length) return null;
+    return { lat: parseFloat(results[0].lat), lng: parseFloat(results[0].lon) };
+  } catch (err) {
+    return null;
+  }
+}
+
+// Self-healing: any trip missing map coordinates gets looked up once and
+// cached back to Firestore (only succeeds when signed in — that's fine,
+// the map still renders for this viewer either way for this session).
+const __geocodeAttempted = new Set();
+async function ensureTripGeo(trip) {
+  if (!trip.location || __geocodeAttempted.has(trip.id)) return;
+  __geocodeAttempted.add(trip.id);
+  const geo = await geocodeLocation(trip.location);
+  if (!geo) return;
+  trip.lat = geo.lat;
+  trip.lng = geo.lng;
+  renderTripsMap(store.trips);
+  if (db && isOwner) {
+    db.collection('trips').doc(trip.id).update({ lat: geo.lat, lng: geo.lng }).catch(() => {});
+  }
+}
+
 const OGA_BASE = "https://api.opengolfapi.org/v1";
+
+/* ======================= Trips map (Leaflet + OpenStreetMap, free) ======================= */
+let __tripsMapInstance = null;
+let __leafletIconsFixed = false;
+function fixLeafletIcons() {
+  if (__leafletIconsFixed || typeof L === 'undefined') return;
+  __leafletIconsFixed = true;
+  delete L.Icon.Default.prototype._getIconUrl;
+  L.Icon.Default.mergeOptions({
+    iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+    iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+    shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+  });
+}
+
+function renderTripsMap(trips) {
+  const container = document.getElementById('tripsMap');
+  if (!container || typeof L === 'undefined') return;
+  fixLeafletIcons();
+  if (__tripsMapInstance) {
+    try { __tripsMapInstance.remove(); } catch (e) {}
+    __tripsMapInstance = null;
+  }
+  const withGeo = trips.filter(t => typeof t.lat === 'number' && typeof t.lng === 'number');
+  const map = L.map('tripsMap', { scrollWheelZoom: false }).setView([39.8, -98.6], 4);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap contributors',
+    maxZoom: 12,
+  }).addTo(map);
+
+  withGeo.forEach(t => {
+    const marker = L.marker([t.lat, t.lng]).addTo(map);
+    marker.bindTooltip(escapeHtml(t.name), { direction: 'top' });
+    marker.on('click', () => { location.hash = `#/trip/${t.id}`; });
+  });
+
+  if (withGeo.length > 1) {
+    map.fitBounds(L.latLngBounds(withGeo.map(t => [t.lat, t.lng])).pad(0.3));
+  } else if (withGeo.length === 1) {
+    map.setView([withGeo[0].lat, withGeo[0].lng], 7);
+  }
+  __tripsMapInstance = map;
+  setTimeout(() => { try { map.invalidateSize(); } catch (e) {} }, 80);
+
+  // Any trip with a location but no cached coordinates yet gets looked up
+  // in the background and the map redraws itself once resolved.
+  trips.forEach(t => { if (t.location && typeof t.lat !== 'number') ensureTripGeo(t); });
+}
+
+/* Most-recently-played date first; trips with no rounds logged yet (nothing
+   to sort by) float to the top since they're presumably coming up next. */
+function tripLastPlayedDate(tripId) {
+  const rounds = store.roundsByTrip[tripId] || [];
+  const dates = rounds.map(r => r.date).filter(Boolean);
+  if (!dates.length) return null;
+  return dates.reduce((max, d) => (d > max ? d : max), dates[0]);
+}
+function sortedTrips() {
+  return [...store.trips].sort((a, b) => {
+    const da = tripLastPlayedDate(a.id);
+    const dbb = tripLastPlayedDate(b.id);
+    if (!da && !dbb) return (b.createdAt || 0) - (a.createdAt || 0);
+    if (!da) return -1;
+    if (!dbb) return 1;
+    if (da === dbb) return 0;
+    return da > dbb ? -1 : 1;
+  });
+}
 
 async function ogaSearchCourses(query) {
   const res = await fetch(`${OGA_BASE}/courses/search?q=${encodeURIComponent(query)}&limit=8`);
@@ -791,24 +928,44 @@ function render() {
   const crumbs = document.getElementById('crumbs');
   crumbs.innerHTML = '';
 
+  let section = 'home';
   if (parts[0] === 'trip' && parts[1]) {
+    section = 'home';
     renderTrip(parts[1], main, crumbs, parts[2], parts[3]);
   } else if (parts[0] === 'players') {
-    crumbs.innerHTML = `<a href="#/">Home</a>`;
+    section = 'players';
     renderPlayers(main);
   } else if (parts[0] === 'stats') {
-    crumbs.innerHTML = `<a href="#/">Home</a>`;
+    section = 'stats';
     renderStats(main);
   } else if (parts[0] === 'courses') {
-    crumbs.innerHTML = `<a href="#/">Home</a>`;
+    section = 'courses';
     renderAllCourses(main, parts[1]);
   } else {
+    section = 'home';
     renderHome(main);
   }
+  renderAppTabs(section);
+}
+
+function renderAppTabs(activeKey) {
+  const el = document.getElementById('appTabs');
+  if (!el) return;
+  const tabs = [
+    { key: 'home', label: 'Trips', hash: '#/' },
+    { key: 'players', label: 'Roster', hash: '#/players' },
+    { key: 'courses', label: 'Courses played', hash: '#/courses' },
+    { key: 'stats', label: 'Career stats', hash: '#/stats' },
+  ];
+  el.innerHTML = tabs.map(t =>
+    `<button class="apptab ${t.key === activeKey ? 'active' : ''}" onclick="location.hash='${t.hash}'">${t.label}</button>`
+  ).join('');
 }
 
 function renderHome(main) {
-  const trips = store.trips;
+  const trips = sortedTrips();
+  const mapHtml = trips.length ? `<div class="trips-map-wrap"><div id="tripsMap"></div></div>` : '';
+
   let rows = trips.map(t => {
     const board = tripLeaderboard(t.id);
     const rounds = store.roundsByTrip[t.id] || [];
@@ -829,17 +986,15 @@ function renderHome(main) {
   }
 
   main.innerHTML = `
+    ${mapHtml}
     <div class="section-head">
       <h2>Trips</h2>
     </div>
     <div class="ledger">${rows}</div>
-    <div class="toolbar">
-      ${isOwner ? `<button class="btn" onclick="openTripModal()">+ New trip</button>` : ''}
-      <button class="btn ghost" onclick="location.hash='#/players'">Roster</button>
-      <button class="btn ghost" onclick="location.hash='#/courses'">Courses played</button>
-      <button class="btn ghost" onclick="location.hash='#/stats'">Career stats</button>
-    </div>
+    ${isOwner ? `<div class="toolbar"><button class="btn" onclick="openTripModal()">+ New trip</button></div>` : ''}
   `;
+
+  if (trips.length) renderTripsMap(trips);
 }
 
 function buildScorecardTable(r) {
@@ -1330,6 +1485,8 @@ function openTripModal(tripId) {
       location: document.getElementById('tLocation').value.trim(),
       roster: newRoster,
     };
+    const geo = await geocodeLocation(data.location);
+    if (geo) { data.lat = geo.lat; data.lng = geo.lng; }
     if (editing) {
       await db.collection('trips').doc(tripId).update(data);
     } else {
