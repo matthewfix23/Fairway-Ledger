@@ -164,6 +164,49 @@
   #tripsMap .map-status {
     padding: 40px 20px; text-align: center; color: var(--ink-soft); font-size: 0.85rem;
   }
+
+  /* ---------- OCR training tool ---------- */
+  .train-toolbar { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; margin-bottom: 14px; }
+  .train-toolbar .zctl { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; color: var(--ink-soft); }
+  .train-toolbar input[type="range"] { width: 120px; }
+  .train-canvas-wrap {
+    border: 1px solid var(--line); border-radius: var(--radius-card);
+    overflow: auto; max-height: 70vh; background: var(--card); margin-bottom: 14px;
+    touch-action: none;
+  }
+  #trainCanvas { display: block; cursor: crosshair; }
+  .train-prompt {
+    display: none; align-items: center; gap: 14px; background: var(--card);
+    border: 1px solid var(--fairway); border-radius: var(--radius-card);
+    padding: 12px 16px; margin-bottom: 18px;
+  }
+  .train-prompt.show { display: flex; }
+  .train-prompt img { width: 64px; height: 64px; image-rendering: pixelated; border: 1px solid var(--line); background: #fff; }
+  .train-prompt input[type="text"] { width: 70px; font-size: 1.1rem; text-align: center; }
+  .train-quickdigits { display: flex; flex-wrap: wrap; gap: 4px; max-width: 220px; }
+  .train-quickdigits button {
+    width: 30px; height: 30px; border: 1px solid var(--line); background: #fff;
+    border-radius: 3px; font-weight: 700; color: var(--fairway-deep); cursor: pointer;
+  }
+  .train-quickdigits button:hover { background: var(--fairway); color: #fff; }
+  .training-gallery {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(56px, 1fr));
+    gap: 8px; margin-bottom: 20px;
+  }
+  .training-gallery .tg-item { position: relative; text-align: center; }
+  .training-gallery .tg-item img {
+    width: 100%; aspect-ratio: 1; object-fit: cover; image-rendering: pixelated;
+    border: 1px solid var(--line); background: #fff; border-radius: 2px;
+  }
+  .training-gallery .tg-item .tg-label {
+    position: absolute; bottom: 2px; right: 3px; background: var(--fairway-deep);
+    color: #fff; font-size: 0.68rem; font-weight: 700; padding: 0 4px; border-radius: 2px;
+  }
+  .training-gallery .tg-item .tg-del {
+    position: absolute; top: -6px; right: -6px; background: var(--flag); color: #fff;
+    border: none; border-radius: 50%; width: 18px; height: 18px; font-size: 0.65rem;
+    cursor: pointer; line-height: 1;
+  }
   #authArea { font-size: 0.78rem; }
   .signin-link { color: #d8dfc9; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
   .signin-link:hover { color: #fff; }
@@ -995,6 +1038,9 @@ function render() {
   } else if (parts[0] === 'courses') {
     section = 'courses';
     renderAllCourses(main, parts[1]);
+  } else if (parts[0] === 'training') {
+    section = 'home';
+    renderTraining(main);
   } else {
     section = 'home';
     renderHome(main);
@@ -1045,7 +1091,10 @@ function renderHome(main) {
       <h2>Trips</h2>
     </div>
     <div class="ledger">${rows}</div>
-    ${isOwner ? `<div class="toolbar"><button class="btn" onclick="openTripModal()">+ New trip</button></div>` : ''}
+    ${isOwner ? `<div class="toolbar">
+      <button class="btn" onclick="openTripModal()">+ New trip</button>
+      <button class="btn ghost" onclick="location.hash='#/training'">Train scanning</button>
+    </div>` : ''}
   `;
 
   if (trips.length) renderTripsMap(trips);
@@ -1360,6 +1409,195 @@ function renderAllCourses(main, openKey) {
     <div class="section-head"><h2>Courses played</h2></div>
     <div class="ledger">${rows || `<div class="empty">No rounds logged yet across any trip.</div>`}</div>
   `;
+}
+
+/* ======================= OCR training-data collection ======================= */
+/* Turns scorecard photos into labeled digit samples for a future custom
+   handwriting model: click the center of a handwritten score, type the
+   digit, repeat. Each confirmed sample is cropped, normalized to a small
+   fixed size, and saved to Firestore (owner-only, per the security rules —
+   this page is only ever shown to the signed-in owner anyway). */
+const TRAIN_SAMPLE_SIZE = 32; // normalized output resolution (px)
+window.__train = { img: null, scale: 1, boxSize: 60, naturalW: 0, naturalH: 0 };
+let __trainSamplesUnsub = null;
+
+function renderTraining(main) {
+  if (!isOwner) { location.hash = '#/'; return; }
+  main.innerHTML = `
+    <div class="section-head"><h2>Train scorecard scanning</h2></div>
+    <p class="tag">Load a photo of a completed scorecard, click the center of each handwritten score, then type the digit and press Enter. Do as many cards as you like — this builds the dataset a future custom reader will train on.</p>
+
+    <div class="train-toolbar">
+      <label class="btn ghost small" for="trainPhotoInput" style="cursor:pointer;">📷 Load a scorecard photo</label>
+      <input type="file" id="trainPhotoInput" accept="image/*" onchange="loadTrainingPhoto(this.files[0])" style="display:none;">
+      <div class="zctl">Crop box: <input type="range" id="trainBoxSize" min="20" max="160" value="60" oninput="updateTrainBoxSize(this.value)"><span id="trainBoxSizeLabel">60px</span></div>
+      <div class="zctl">Zoom: <input type="range" id="trainZoom" min="0.3" max="2.5" step="0.1" value="1" oninput="updateTrainZoom(this.value)"></div>
+    </div>
+
+    <div class="train-canvas-wrap" id="trainCanvasWrap">
+      <canvas id="trainCanvas"></canvas>
+    </div>
+
+    <div class="train-prompt" id="trainPrompt">
+      <img id="trainLastCrop" alt="cropped sample">
+      <form onsubmit="return confirmTrainSample(event)" style="display:flex; align-items:center; gap:10px;">
+        <input type="text" id="trainDigitInput" inputmode="numeric" placeholder="?" autocomplete="off">
+        <button class="btn small" type="submit">Save</button>
+      </form>
+      <div class="train-quickdigits">
+        ${[1,2,3,4,5,6,7,8,9,10,11,12].map(n => `<button type="button" onclick="quickSaveTrainSample(${n})">${n}</button>`).join('')}
+      </div>
+      <button type="button" class="btn ghost small" onclick="skipTrainSample()">Skip</button>
+    </div>
+
+    <div class="section-head"><h3>Collected samples (<span id="trainCount">…</span>)</h3></div>
+    <div id="trainGallery" class="training-gallery"></div>
+  `;
+
+  document.getElementById('trainCanvas').addEventListener('click', onTrainCanvasClick);
+  refreshTrainCount();
+  watchTrainGallery();
+}
+
+function loadTrainingPhoto(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const img = new Image();
+    img.onload = () => {
+      window.__train.img = img;
+      window.__train.naturalW = img.naturalWidth;
+      window.__train.naturalH = img.naturalHeight;
+      const wrap = document.getElementById('trainCanvasWrap');
+      const fitScale = Math.min(1, (wrap.clientWidth - 4) / img.naturalWidth);
+      window.__train.scale = fitScale > 0 ? fitScale : 1;
+      document.getElementById('trainZoom').value = window.__train.scale.toFixed(1);
+      drawTrainCanvas();
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function drawTrainCanvas() {
+  const st = window.__train;
+  if (!st.img) return;
+  const canvas = document.getElementById('trainCanvas');
+  canvas.width = Math.round(st.naturalW * st.scale);
+  canvas.height = Math.round(st.naturalH * st.scale);
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(st.img, 0, 0, canvas.width, canvas.height);
+}
+
+function updateTrainZoom(val) {
+  window.__train.scale = Number(val);
+  drawTrainCanvas();
+}
+function updateTrainBoxSize(val) {
+  window.__train.boxSize = Number(val);
+  document.getElementById('trainBoxSizeLabel').textContent = `${val}px`;
+}
+
+function onTrainCanvasClick(e) {
+  const st = window.__train;
+  if (!st.img) return;
+  const canvas = document.getElementById('trainCanvas');
+  const rect = canvas.getBoundingClientRect();
+  const clickX = (e.clientX - rect.left) * (canvas.width / rect.width);
+  const clickY = (e.clientY - rect.top) * (canvas.height / rect.height);
+  const srcX = clickX / st.scale;
+  const srcY = clickY / st.scale;
+  const box = st.boxSize;
+
+  // Crop a box×box region (in source-image pixels) centered on the click,
+  // then normalize to a small fixed grayscale square for consistent input.
+  const crop = document.createElement('canvas');
+  crop.width = box; crop.height = box;
+  crop.getContext('2d').drawImage(st.img, srcX - box / 2, srcY - box / 2, box, box, 0, 0, box, box);
+
+  const norm = document.createElement('canvas');
+  norm.width = TRAIN_SAMPLE_SIZE; norm.height = TRAIN_SAMPLE_SIZE;
+  const nctx = norm.getContext('2d');
+  nctx.drawImage(crop, 0, 0, TRAIN_SAMPLE_SIZE, TRAIN_SAMPLE_SIZE);
+  const imgData = nctx.getImageData(0, 0, TRAIN_SAMPLE_SIZE, TRAIN_SAMPLE_SIZE);
+  const d = imgData.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const gray = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+    d[i] = d[i + 1] = d[i + 2] = gray;
+  }
+  nctx.putImageData(imgData, 0, 0);
+
+  window.__train.pendingDataUrl = norm.toDataURL('image/png');
+  document.getElementById('trainLastCrop').src = window.__train.pendingDataUrl;
+  const promptEl = document.getElementById('trainPrompt');
+  promptEl.classList.add('show');
+  const input = document.getElementById('trainDigitInput');
+  input.value = '';
+  input.focus();
+}
+
+function confirmTrainSample(e) {
+  e.preventDefault();
+  const val = document.getElementById('trainDigitInput').value.trim();
+  const n = Number(val);
+  if (!val || isNaN(n) || n < 1 || n > 15) {
+    alert('Enter the score as a number (1–15).');
+    return false;
+  }
+  saveTrainSample(n);
+  return false;
+}
+function quickSaveTrainSample(n) { saveTrainSample(n); }
+function skipTrainSample() {
+  document.getElementById('trainPrompt').classList.remove('show');
+  window.__train.pendingDataUrl = null;
+}
+
+function saveTrainSample(label) {
+  if (!db || !isOwner || !window.__train.pendingDataUrl) return;
+  db.collection('digitSamples').add({
+    image: window.__train.pendingDataUrl,
+    label,
+    createdAt: Date.now(),
+  }).then(() => {
+    refreshTrainCount();
+  });
+  document.getElementById('trainPrompt').classList.remove('show');
+  window.__train.pendingDataUrl = null;
+}
+
+function refreshTrainCount() {
+  if (!db) return;
+  const el = document.getElementById('trainCount');
+  if (db.collection('digitSamples').count) {
+    db.collection('digitSamples').count().get().then(snap => {
+      if (el) el.textContent = snap.data().count;
+    }).catch(() => { if (el) el.textContent = '?'; });
+  } else if (el) {
+    el.textContent = '?';
+  }
+}
+
+function watchTrainGallery() {
+  if (__trainSamplesUnsub) { __trainSamplesUnsub(); __trainSamplesUnsub = null; }
+  if (!db) return;
+  __trainSamplesUnsub = db.collection('digitSamples').orderBy('createdAt', 'desc').limit(60).onSnapshot(snap => {
+    const gallery = document.getElementById('trainGallery');
+    if (!gallery) return;
+    gallery.innerHTML = snap.docs.map(d => {
+      const s = d.data();
+      return `<div class="tg-item">
+        <img src="${s.image}" alt="sample">
+        <span class="tg-label">${escapeHtml(String(s.label))}</span>
+        <button class="tg-del" onclick="deleteTrainSample('${d.id}')" title="Delete">✕</button>
+      </div>`;
+    }).join('') || `<div class="empty">No samples yet — load a photo above and start clicking scores.</div>`;
+  });
+}
+
+function deleteTrainSample(id) {
+  if (!db || !isOwner) return;
+  db.collection('digitSamples').doc(id).delete().then(refreshTrainCount);
 }
 
 function renderStats(main) {
