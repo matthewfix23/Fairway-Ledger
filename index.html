@@ -153,12 +153,14 @@
   #tripsMap .us-outline { fill: none; stroke: var(--fairway); stroke-width: 1.4; }
   #tripsMap .trip-marker { cursor: pointer; }
   #tripsMap .trip-marker circle.hit { fill: transparent; }
-  #tripsMap .trip-marker circle.dot {
-    fill: var(--flag); stroke: var(--card); stroke-width: 2;
-    transition: r 0.1s ease, fill 0.1s ease;
+  #tripsMap .trip-marker .pin-body {
+    fill: var(--flag); stroke: var(--card); stroke-width: 1.5;
+    transform-origin: 0px 0px;
+    transition: transform 0.12s ease, fill 0.12s ease;
   }
-  #tripsMap .trip-marker:hover circle.dot,
-  #tripsMap .trip-marker:focus circle.dot { fill: var(--gold); r: 10; }
+  #tripsMap .trip-marker .pin-hole { fill: var(--card); }
+  #tripsMap .trip-marker:hover .pin-body,
+  #tripsMap .trip-marker:focus .pin-body { fill: var(--gold); transform: scale(1.15); }
   #tripsMap .map-status {
     padding: 40px 20px; text-align: center; color: var(--ink-soft); font-size: 0.85rem;
   }
@@ -669,10 +671,14 @@ async function renderTripsMap(trips) {
     const pt = projection([t.lng, t.lat]);
     if (!pt) return '';
     const [x, y] = pt;
-    return `<g class="trip-marker" onclick="location.hash='#/trip/${t.id}'" tabindex="0">
+    const s = 1.4;
+    return `<g class="trip-marker" onclick="location.hash='#/trip/${t.id}'" tabindex="0" transform="translate(${x.toFixed(1)},${y.toFixed(1)})">
       <title>${escapeHtml(t.name)}${t.location ? ' — ' + escapeHtml(t.location) : ''}</title>
-      <circle class="hit" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="14"></circle>
-      <circle class="dot" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="7"></circle>
+      <circle class="hit" cx="0" cy="${(-16 * s).toFixed(1)}" r="${(20 * s).toFixed(1)}"></circle>
+      <g transform="scale(${s})">
+        <path class="pin-body" d="M0,0 C-2,-8 -8,-10 -8,-16 A8,8 0 1,1 8,-16 C8,-10 2,-8 0,0 Z"></path>
+        <circle class="pin-hole" cx="0" cy="-16" r="3.4"></circle>
+      </g>
     </g>`;
   }).join('');
 
