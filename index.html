@@ -1325,15 +1325,33 @@ function toggleRound(roundId) {
   if (el) el.classList.toggle('open');
 }
 
+/* The roster's handicap column shows each player's most recent trip
+   handicap (the same number shown next to their name on leaderboards),
+   not a separately-maintained static value — trips are checked most-recent
+   first, skipping any where that player has no handicap on file, until one
+   with an actual value is found. */
+function latestHandicapForPlayer(pid) {
+  const trips = sortedTrips();
+  for (const t of trips) {
+    const hcp = t.roster && t.roster[pid];
+    if (hcp) return { hcp, tripName: t.name };
+  }
+  return null;
+}
+
 function renderPlayers(main) {
-  const rows = store.players.map(p => `
+  const rows = store.players.map(p => {
+    const latest = latestHandicapForPlayer(p.id);
+    const hcpVal = latest ? latest.hcp : (p.handicap || null);
+    return `
     <div class="player-row">
       <div>
         <span class="pname">${escapeHtml(p.name)}</span>
-        ${p.handicap !== undefined && p.handicap !== null && p.handicap !== '' ? `<span class="phcp">HCP ${p.handicap}</span>` : ''}
+        ${hcpVal ? `<span class="phcp">HCP ${escapeHtml(String(hcpVal))}</span>` : ''}
       </div>
       ${isOwner ? `<button class="btn small ghost" onclick="removePlayer('${p.id}')">Remove</button>` : ''}
-    </div>`).join('') || `<div class="empty">No one on the roster yet.</div>`;
+    </div>`;
+  }).join('') || `<div class="empty">No one on the roster yet.</div>`;
 
   main.innerHTML = `
     <div class="section-head"><h2>Roster</h2></div>
