@@ -174,7 +174,15 @@
     overflow: auto; max-height: 70vh; background: var(--card); margin-bottom: 14px;
     touch-action: none;
   }
-  #trainCanvas { display: block; cursor: crosshair; }
+  #trainCanvas { display: block; cursor: crosshair; touch-action: none; }
+  .train-loupe {
+    display: none; position: fixed; z-index: 60;
+    width: 140px; height: 140px; border: 2px solid var(--fairway);
+    border-radius: 50%; overflow: hidden; background: #fff;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.35); pointer-events: none;
+  }
+  .train-loupe.show { display: block; }
+  .train-loupe canvas { width: 100%; height: 100%; image-rendering: pixelated; }
   .train-prompt {
     display: none; align-items: center; gap: 14px; background: var(--card);
     border: 1px solid var(--fairway); border-radius: var(--radius-card);
@@ -1418,11 +1426,12 @@ function renderAllCourses(main, openKey) {
    fixed size, and saved to Firestore (owner-only, per the security rules —
    this page is only ever shown to the signed-in owner anyway). */
 const TRAIN_SAMPLE_SIZE = 32; // normalized output resolution (px)
-window.__train = { img: null, scale: 1, boxSize: 60, naturalW: 0, naturalH: 0 };
+window.__train = { img: null, scale: 1, boxSize: 60, naturalW: 0, naturalH: 0, mode: 'crop' };
 let __trainSamplesUnsub = null;
 
 function renderTraining(main) {
   if (!isOwner) { location.hash = '#/'; return; }
+  window.__train.mode = 'crop';
   main.innerHTML = `
     <div class="section-head"><h2>Train scorecard scanning</h2></div>
     <p class="tag">Load a photo of a completed scorecard, click the center of each handwritten score, then type the digit and press Enter. Do as many cards as you like — this builds the dataset a future custom reader will train on.</p>
@@ -1431,12 +1440,18 @@ function renderTraining(main) {
       <label class="btn ghost small" for="trainPhotoInput" style="cursor:pointer;">📷 Load a scorecard photo</label>
       <input type="file" id="trainPhotoInput" accept="image/*" onchange="loadTrainingPhoto(this.files[0])" style="display:none;">
       <div class="zctl">Crop box: <input type="range" id="trainBoxSize" min="20" max="160" value="60" oninput="updateTrainBoxSize(this.value)"><span id="trainBoxSizeLabel">60px</span></div>
-      <div class="zctl">Zoom: <input type="range" id="trainZoom" min="0.3" max="2.5" step="0.1" value="1" oninput="updateTrainZoom(this.value)"></div>
+      <div class="zctl">Zoom: <input type="range" id="trainZoom" min="0.3" max="4" step="0.1" value="1" oninput="updateTrainZoom(this.value)"></div>
+      <div class="zctl">
+        <button type="button" class="btn small" id="trainModeCropBtn" onclick="setTrainMode('crop')">✛ Crop</button>
+        <button type="button" class="btn ghost small" id="trainModePanBtn" onclick="setTrainMode('pan')">✋ Pan</button>
+      </div>
     </div>
 
+    <p class="tag">Zoomed in past what fits on screen? Switch to <strong>Pan</strong> to scroll around, then back to <strong>Crop</strong>. In Crop mode: press on a score, drag slightly to line up the magnifier, lift to capture.</p>
     <div class="train-canvas-wrap" id="trainCanvasWrap">
       <canvas id="trainCanvas"></canvas>
     </div>
+    <div class="train-loupe" id="trainLoupe"><canvas id="trainLoupeCanvas" width="140" height="140"></canvas></div>
 
     <div class="train-prompt" id="trainPrompt">
       <img id="trainLastCrop" alt="cropped sample">
@@ -1454,7 +1469,11 @@ function renderTraining(main) {
     <div id="trainGallery" class="training-gallery"></div>
   `;
 
-  document.getElementById('trainCanvas').addEventListener('click', onTrainCanvasClick);
+  const trainCanvasEl = document.getElementById('trainCanvas');
+  trainCanvasEl.addEventListener('pointerdown', trainCanvasPointerDown);
+  trainCanvasEl.addEventListener('pointermove', trainCanvasPointerMove);
+  trainCanvasEl.addEventListener('pointerup', trainCanvasPointerUp);
+  trainCanvasEl.addEventListener('pointercancel', trainCanvasPointerUp);
   refreshTrainCount();
   watchTrainGallery();
 }
@@ -1498,18 +1517,99 @@ function updateTrainBoxSize(val) {
   document.getElementById('trainBoxSizeLabel').textContent = `${val}px`;
 }
 
-function onTrainCanvasClick(e) {
+/* Press-and-drag with a magnifying loupe: touch fingertips cover exactly
+   the pixels you're trying to aim at, so we show a zoomed-in preview
+   offset above the finger while dragging, and only commit the crop when
+   the pointer is released. A plain tap (no real movement) still works —
+   it just uses the down position as both start and end. */
+let __trainDragging = false;
+
+function setTrainMode(mode) {
+  window.__train.mode = mode;
+  const canvas = document.getElementById('trainCanvas');
+  const cropBtn = document.getElementById('trainModeCropBtn');
+  const panBtn = document.getElementById('trainModePanBtn');
+  if (mode === 'pan') {
+    canvas.style.touchAction = 'auto';
+    canvas.style.cursor = 'grab';
+    cropBtn.className = 'btn ghost small';
+    panBtn.className = 'btn small';
+  } else {
+    canvas.style.touchAction = 'none';
+    canvas.style.cursor = 'crosshair';
+    cropBtn.className = 'btn small';
+    panBtn.className = 'btn ghost small';
+  }
+}
+
+function trainCanvasPointerDown(e) {
   const st = window.__train;
-  if (!st.img) return;
+  if (!st.img || st.mode === 'pan') return;
+  __trainDragging = true;
+  const canvas = document.getElementById('trainCanvas');
+  try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
+  document.getElementById('trainLoupe').classList.add('show');
+  updateTrainLoupe(e);
+}
+function trainCanvasPointerMove(e) {
+  if (!__trainDragging) return;
+  e.preventDefault();
+  updateTrainLoupe(e);
+}
+function trainCanvasPointerUp(e) {
+  if (!__trainDragging) return;
+  __trainDragging = false;
+  document.getElementById('trainLoupe').classList.remove('show');
+  const st = window.__train;
+  if (st.lastSrcX !== undefined) cropAndPromptAt(st.lastSrcX, st.lastSrcY);
+}
+
+function canvasPointToSource(e) {
+  const st = window.__train;
   const canvas = document.getElementById('trainCanvas');
   const rect = canvas.getBoundingClientRect();
-  const clickX = (e.clientX - rect.left) * (canvas.width / rect.width);
-  const clickY = (e.clientY - rect.top) * (canvas.height / rect.height);
-  const srcX = clickX / st.scale;
-  const srcY = clickY / st.scale;
+  const x = (e.clientX - rect.left) * (canvas.width / rect.width);
+  const y = (e.clientY - rect.top) * (canvas.height / rect.height);
+  return { srcX: x / st.scale, srcY: y / st.scale };
+}
+
+function updateTrainLoupe(e) {
+  const st = window.__train;
+  const { srcX, srcY } = canvasPointToSource(e);
+  st.lastSrcX = srcX;
+  st.lastSrcY = srcY;
+
+  // Position the loupe above and slightly offset from the actual touch
+  // point so the finger doesn't block the view of what it's covering.
+  const loupe = document.getElementById('trainLoupe');
+  const size = 140;
+  let left = e.clientX - size / 2;
+  let top = e.clientY - size - 36;
+  left = Math.max(6, Math.min(window.innerWidth - size - 6, left));
+  top = Math.max(6, top < 6 ? e.clientY + 36 : top);
+  loupe.style.left = `${left}px`;
+  loupe.style.top = `${top}px`;
+
+  const box = st.boxSize;
+  const lctx = document.getElementById('trainLoupeCanvas').getContext('2d');
+  lctx.clearRect(0, 0, 140, 140);
+  lctx.imageSmoothingEnabled = false;
+  lctx.drawImage(st.img, srcX - box / 2, srcY - box / 2, box, box, 0, 0, 140, 140);
+  // Crosshair marking the exact crop bounds for confidence before releasing.
+  lctx.strokeStyle = 'rgba(161,58,44,0.85)';
+  lctx.lineWidth = 2;
+  lctx.strokeRect(1, 1, 138, 138);
+  lctx.beginPath();
+  lctx.moveTo(70, 60); lctx.lineTo(70, 80);
+  lctx.moveTo(60, 70); lctx.lineTo(80, 70);
+  lctx.stroke();
+}
+
+function cropAndPromptAt(srcX, srcY) {
+  const st = window.__train;
   const box = st.boxSize;
 
-  // Crop a box×box region (in source-image pixels) centered on the click,
+  // Crop a box×box region (in source-image pixels) centered on the point,
   // then normalize to a small fixed grayscale square for consistent input.
   const crop = document.createElement('canvas');
   crop.width = box; crop.height = box;
