@@ -169,6 +169,11 @@
   .train-toolbar { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; margin-bottom: 14px; }
   .train-toolbar .zctl { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; color: var(--ink-soft); }
   .train-toolbar input[type="range"] { width: 120px; }
+  .train-frame-toolbar {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    background: var(--card); border: 1px dashed var(--fairway);
+    border-radius: var(--radius-card); padding: 10px 12px; margin-bottom: 10px;
+  }
   .train-canvas-wrap {
     border: 1px solid var(--line); border-radius: var(--radius-card);
     overflow: auto; max-height: 70vh; background: var(--card); margin-bottom: 14px;
@@ -1442,22 +1447,29 @@ let __trainSamplesUnsub = null;
 function renderTraining(main) {
   if (!isOwner) { location.hash = '#/'; return; }
   window.__train.mode = 'crop';
+  window.__train.framing = false;
   main.innerHTML = `
     <div class="section-head"><h2>Train scorecard scanning</h2></div>
-    <p class="tag">Load a photo of a completed scorecard, click the center of each handwritten score, then type the digit and press Enter. Do as many cards as you like — this builds the dataset a future custom reader will train on.</p>
+    <p class="tag">Load a photo, frame just the score grid (skips the course name, par row, yardages — anything that isn't a handwritten score), then click each score and type the digit. Do as many cards as you like.</p>
 
     <div class="train-toolbar">
       <label class="btn ghost small" for="trainPhotoInput" style="cursor:pointer;">📷 Load a scorecard photo</label>
       <input type="file" id="trainPhotoInput" accept="image/*" onchange="loadTrainingPhoto(this.files[0])" style="display:none;">
+      <button type="button" class="btn ghost small" id="trainReframeBtn" onclick="startTrainFraming()" style="display:none;">⤢ Re-frame</button>
       <div class="zctl">Crop box: <input type="range" id="trainBoxSize" min="20" max="160" value="60" oninput="updateTrainBoxSize(this.value)"><span id="trainBoxSizeLabel">60px</span></div>
       <div class="zctl">Zoom: <input type="range" id="trainZoom" min="0.3" max="4" step="0.1" value="1" oninput="updateTrainZoom(this.value)"></div>
-      <div class="zctl">
+      <div class="zctl" id="trainModeToggle" style="display:none;">
         <button type="button" class="btn small" id="trainModeCropBtn" onclick="setTrainMode('crop')">✛ Crop</button>
         <button type="button" class="btn ghost small" id="trainModePanBtn" onclick="setTrainMode('pan')">✋ Pan</button>
       </div>
     </div>
 
-    <p class="tag">Zoomed in past what fits on screen? Switch to <strong>Pan</strong> to scroll around, then back to <strong>Crop</strong>. In Crop mode: press on a score, drag slightly to line up the magnifier, lift to capture.</p>
+    <div class="train-frame-toolbar" id="trainFrameToolbar" style="display:none;">
+      <span class="tag">Drag a box around just the score grid (all players' rows, all 18 holes) →</span>
+      <button type="button" class="btn small" onclick="applyTrainFrame()">Use this area</button>
+      <button type="button" class="btn ghost small" onclick="skipTrainFraming()">Skip — use full photo</button>
+    </div>
+    <p class="tag" id="trainCropHint" style="display:none;">Zoomed in past what fits on screen? Switch to <strong>Pan</strong> to scroll around, then back to <strong>Crop</strong>. In Crop mode: press on a score, drag slightly to line up the magnifier, lift to capture.</p>
     <div class="train-canvas-wrap" id="trainCanvasWrap">
       <canvas id="trainCanvas"></canvas>
     </div>
@@ -1498,18 +1510,24 @@ function loadTrainingPhoto(file) {
   reader.onload = (e) => {
     const img = new Image();
     img.onload = () => {
+      window.__train.originalImg = img;
       window.__train.img = img;
       window.__train.naturalW = img.naturalWidth;
       window.__train.naturalH = img.naturalHeight;
-      const wrap = document.getElementById('trainCanvasWrap');
-      const fitScale = Math.min(1, (wrap.clientWidth - 4) / img.naturalWidth);
-      window.__train.scale = fitScale > 0 ? fitScale : 1;
-      document.getElementById('trainZoom').value = window.__train.scale.toFixed(1);
+      fitTrainCanvasToWrap(img.naturalWidth);
       drawTrainCanvas();
+      startTrainFraming();
     };
     img.src = e.target.result;
   };
   reader.readAsDataURL(file);
+}
+
+function fitTrainCanvasToWrap(sourceWidth) {
+  const wrap = document.getElementById('trainCanvasWrap');
+  const fitScale = Math.min(1, (wrap.clientWidth - 4) / sourceWidth);
+  window.__train.scale = fitScale > 0 ? fitScale : 1;
+  document.getElementById('trainZoom').value = window.__train.scale.toFixed(1);
 }
 
 function drawTrainCanvas() {
@@ -1520,6 +1538,109 @@ function drawTrainCanvas() {
   canvas.height = Math.round(st.naturalH * st.scale);
   const ctx = canvas.getContext('2d');
   ctx.drawImage(st.img, 0, 0, canvas.width, canvas.height);
+}
+
+/* ---- Step 1: frame just the score grid, so tagging (and later, real
+   scanning) never has to tell a score apart from a par/yardage/date
+   number sitting elsewhere on the card. ---- */
+function startTrainFraming() {
+  const st = window.__train;
+  if (!st.originalImg) return;
+  st.framing = true;
+  st.img = st.originalImg;
+  st.naturalW = st.originalImg.naturalWidth;
+  st.naturalH = st.originalImg.naturalHeight;
+  fitTrainCanvasToWrap(st.naturalW);
+  drawTrainCanvas();
+  document.getElementById('trainCanvas').style.touchAction = 'none';
+  document.getElementById('trainFrameToolbar').style.display = 'flex';
+  document.getElementById('trainModeToggle').style.display = 'none';
+  document.getElementById('trainCropHint').style.display = 'none';
+  document.getElementById('trainReframeBtn').style.display = 'none';
+}
+
+function trainFramePointerDown(e) {
+  const canvas = document.getElementById('trainCanvas');
+  try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
+  const { dispX, dispY } = trainDisplayPoint(e);
+  window.__train.frameStart = { x: dispX, y: dispY };
+  window.__train.frameCur = null;
+}
+function trainFramePointerMove(e) {
+  const st = window.__train;
+  if (!st.frameStart) return;
+  e.preventDefault();
+  const { dispX, dispY } = trainDisplayPoint(e);
+  st.frameCur = { x: dispX, y: dispY };
+  drawTrainCanvas();
+  const ctx = document.getElementById('trainCanvas').getContext('2d');
+  ctx.strokeStyle = 'rgba(161,58,44,0.9)';
+  ctx.lineWidth = 2;
+  ctx.setLineDash([7, 5]);
+  const x = Math.min(st.frameStart.x, dispX), y = Math.min(st.frameStart.y, dispY);
+  ctx.strokeRect(x, y, Math.abs(dispX - st.frameStart.x), Math.abs(dispY - st.frameStart.y));
+  ctx.setLineDash([]);
+}
+function trainFramePointerUp(e) {
+  // Selection stays visible until "Use this area" / "Skip" is pressed —
+  // nothing to finalize here beyond letting the drag settle.
+}
+
+function trainDisplayPoint(e) {
+  const canvas = document.getElementById('trainCanvas');
+  const rect = canvas.getBoundingClientRect();
+  return {
+    dispX: (e.clientX - rect.left) * (canvas.width / rect.width),
+    dispY: (e.clientY - rect.top) * (canvas.height / rect.height),
+  };
+}
+
+function applyTrainFrame() {
+  const st = window.__train;
+  if (!st.frameStart || !st.frameCur) {
+    alert('Drag a box around the score grid first — click and hold, drag, then release.');
+    return;
+  }
+  const x0 = Math.min(st.frameStart.x, st.frameCur.x) / st.scale;
+  const y0 = Math.min(st.frameStart.y, st.frameCur.y) / st.scale;
+  const w = Math.abs(st.frameCur.x - st.frameStart.x) / st.scale;
+  const h = Math.abs(st.frameCur.y - st.frameStart.y) / st.scale;
+  if (w < 20 || h < 20) {
+    alert('That selection is too small — drag a bigger box around the score grid.');
+    return;
+  }
+  const cropped = document.createElement('canvas');
+  cropped.width = Math.round(w);
+  cropped.height = Math.round(h);
+  cropped.getContext('2d').drawImage(st.originalImg, x0, y0, w, h, 0, 0, cropped.width, cropped.height);
+  st.img = cropped;
+  st.naturalW = cropped.width;
+  st.naturalH = cropped.height;
+  st.frameStart = null;
+  st.frameCur = null;
+  finishTrainFraming();
+}
+
+function skipTrainFraming() {
+  const st = window.__train;
+  st.img = st.originalImg;
+  st.naturalW = st.originalImg.naturalWidth;
+  st.naturalH = st.originalImg.naturalHeight;
+  st.frameStart = null;
+  st.frameCur = null;
+  finishTrainFraming();
+}
+
+function finishTrainFraming() {
+  const st = window.__train;
+  st.framing = false;
+  fitTrainCanvasToWrap(st.naturalW);
+  drawTrainCanvas();
+  document.getElementById('trainFrameToolbar').style.display = 'none';
+  document.getElementById('trainModeToggle').style.display = 'flex';
+  document.getElementById('trainCropHint').style.display = 'block';
+  document.getElementById('trainReframeBtn').style.display = 'inline-flex';
+  setTrainMode('crop');
 }
 
 function updateTrainZoom(val) {
@@ -1558,7 +1679,9 @@ function setTrainMode(mode) {
 
 function trainCanvasPointerDown(e) {
   const st = window.__train;
-  if (!st.img || st.mode === 'pan') return;
+  if (!st.img) return;
+  if (st.framing) return trainFramePointerDown(e);
+  if (st.mode === 'pan') return;
   __trainDragging = true;
   const canvas = document.getElementById('trainCanvas');
   try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
@@ -1566,11 +1689,13 @@ function trainCanvasPointerDown(e) {
   updateTrainLoupe(e);
 }
 function trainCanvasPointerMove(e) {
+  if (window.__train.framing) return trainFramePointerMove(e);
   if (!__trainDragging) return;
   e.preventDefault();
   updateTrainLoupe(e);
 }
 function trainCanvasPointerUp(e) {
+  if (window.__train.framing) return trainFramePointerUp(e);
   if (!__trainDragging) return;
   __trainDragging = false;
   document.getElementById('trainLoupe').classList.remove('show');
