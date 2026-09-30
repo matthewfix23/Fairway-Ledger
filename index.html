@@ -197,6 +197,16 @@
     border-radius: 3px; font-weight: 700; color: var(--fairway-deep); cursor: pointer;
   }
   .train-quickdigits button:hover { background: var(--fairway); color: #fff; }
+  .train-breakdown { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 20px; }
+  .train-digit-chip {
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    min-width: 34px; padding: 5px 4px; border-radius: 3px; font-size: 0.72rem;
+    font-weight: 700; color: #fff; background: var(--ink-soft);
+  }
+  .train-digit-chip b { font-size: 0.9rem; font-weight: 800; }
+  .train-digit-chip.none { background: var(--flag); }
+  .train-digit-chip.low { background: var(--gold); }
+  .train-digit-chip.ok { background: var(--fairway); }
   .training-gallery {
     display: grid; grid-template-columns: repeat(auto-fill, minmax(56px, 1fr));
     gap: 8px; margin-bottom: 20px;
@@ -1466,6 +1476,10 @@ function renderTraining(main) {
     </div>
 
     <div class="section-head"><h3>Collected samples (<span id="trainCount">…</span>)</h3></div>
+    <p class="tag">Per digit — aim for at least ${TRAIN_GOAL_PER_DIGIT}+ (green) on the scores that actually come up on your scorecards. Rare ones (1, 2, 11, 12…) may just never have much data, and that's fine.</p>
+    <div id="trainBreakdown" class="train-breakdown"></div>
+
+    <div class="section-head"><h3>Recent samples</h3></div>
     <div id="trainGallery" class="training-gallery"></div>
   `;
 
@@ -1675,6 +1689,30 @@ function refreshTrainCount() {
     }).catch(() => { if (el) el.textContent = '?'; });
   } else if (el) {
     el.textContent = '?';
+  }
+  refreshTrainBreakdown();
+}
+
+// Total sample count alone can hide the real problem: golf scores are
+// naturally lopsided (lots of 4s/5s, almost no 1s/11s/12s), so a per-digit
+// breakdown is what actually tells you where the model needs more examples.
+const TRAIN_GOAL_PER_DIGIT = 30;
+async function refreshTrainBreakdown() {
+  const el = document.getElementById('trainBreakdown');
+  if (!el || !db || !db.collection('digitSamples').count) return;
+  const digits = [1,2,3,4,5,6,7,8,9,10,11,12];
+  try {
+    const counts = await Promise.all(digits.map(n =>
+      db.collection('digitSamples').where('label', '==', n).count().get()
+        .then(s => s.data().count).catch(() => 0)
+    ));
+    el.innerHTML = digits.map((n, i) => {
+      const c = counts[i];
+      const cls = c === 0 ? 'none' : c < TRAIN_GOAL_PER_DIGIT ? 'low' : 'ok';
+      return `<span class="train-digit-chip ${cls}">${n}<b>${c}</b></span>`;
+    }).join('');
+  } catch (err) {
+    el.textContent = '';
   }
 }
 
