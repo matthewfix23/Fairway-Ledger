@@ -536,12 +536,23 @@
   table.par-grid .pg-label { text-align: left; padding-left: 6px; width: 44px; color: var(--fairway-deep); font-weight: 600; }
   table.par-grid .pg-sum { font-weight: 700; background: var(--paper-deep); width: 40px; }
   table.par-grid input.course-par-in {
-    width: 100%; min-width: 24px; text-align: center; padding: 4px 0; border: none;
-    background: transparent; font-variant-numeric: tabular-nums;
-    -moz-appearance: textfield;
+    width: 100%; min-width: 24px; height: 32px; text-align: center; padding: 0; border: none;
+    background: transparent; font-size: 16px; font-variant-numeric: tabular-nums;
   }
-  table.par-grid input.course-par-in::-webkit-inner-spin-button,
-  table.par-grid input.course-par-in::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  table.par-grid input.course-par-in:focus {
+    outline: 2px solid var(--fairway-bright); outline-offset: -2px; background: #fff;
+  }
+
+  /* trip page: course info + tappable leaderboard rows */
+  .course-row .chead .lead .course-info { line-height: 1.45; }
+  .course-row .chead .lead .course-info div:first-child { color: var(--fairway-deep); font-weight: 700; font-family: 'Fraunces', serif; font-size: 0.95rem; }
+  tr.player-row-toggle { cursor: pointer; }
+  tr.player-row-toggle:hover td { background: var(--card); }
+  tr.player-row-toggle .pchev { display: inline-block; color: var(--ink-soft); transition: transform 0.15s ease; }
+  tr.player-row-toggle.open .pchev { transform: rotate(90deg); }
+  tr.pdetail > td { background: var(--card); padding: 6px 10px 12px 32px; }
+  table.board.player-detail { font-size: 0.84rem; }
+  table.board.player-detail th { padding-top: 6px; }
   .round-card .rtee { font-size: 0.76rem; color: var(--ink-soft); margin-top: 2px; }
 
   /* ---------- scorecard scan ---------- */
@@ -1065,6 +1076,61 @@ function courseLeaderboard(rounds, trip) {
   return buildLeaderboard(rounds, trip);
 }
 
+/* Course details for a trip's course row, taken from the most recent round
+   there that has them (rounds arrive newest first). */
+function courseInfo(rounds) {
+  const pick = key => { const r = rounds.find(r => r[key]); return r ? r[key] : null; };
+  const par = (rounds[0] && rounds[0].par) || DEFAULT_PAR;
+  const withRating = rounds.find(r => r.courseRating && r.slopeRating);
+  return {
+    teeName: pick('teeName'),
+    yards: pick('yards'),
+    parTotal: sumHoles(par, 0, 18),
+    rating: withRating ? withRating.courseRating : null,
+    slope: withRating ? withRating.slopeRating : null,
+  };
+}
+function courseInfoBits(info) {
+  const bits = [`Par ${info.parTotal}`];
+  if (info.teeName) bits.push(`${info.teeName} tees`);
+  if (info.yards) bits.push(`${Number(info.yards).toLocaleString()} yds`);
+  if (info.rating && info.slope) bits.push(`${info.rating}/${info.slope}`);
+  return bits;
+}
+
+function toParCell(n) {
+  return n === null || n === undefined ? '–' : `<span class="${toParClass(n)}">${toParLabel(n)}</span>`;
+}
+
+/* Overall leaderboard: tapping a player shows their results at each course
+   on the trip. Open rows are remembered so live updates don't collapse them. */
+const openPlayerDetails = new Set();
+function togglePlayerDetail(tripId, pid) {
+  const key = `${tripId}:${pid}`;
+  if (openPlayerDetails.has(key)) openPlayerDetails.delete(key); else openPlayerDetails.add(key);
+  const row = document.getElementById(`pdetail-${pid}`);
+  const head = document.getElementById(`prow-${pid}`);
+  if (row) row.hidden = !openPlayerDetails.has(key);
+  if (head) head.classList.toggle('open', openPlayerDetails.has(key));
+}
+function playerTripDetail(trip, courses, pid) {
+  const rows = courses.map(c => {
+    const mine = courseLeaderboard(c.rounds, trip).find(r => r.pid === pid);
+    if (!mine) return '';
+    return `<tr>
+      <td>${escapeHtml(c.name)}${mine.rounds > 1 ? ` <span class="hcp-tag">(${mine.rounds} rds)</span>` : ''}</td>
+      <td class="num">${mine.strokes}</td>
+      <td class="num">${toParCell(mine.toPar)}</td>
+      <td class="num">${toParCell(mine.netToPar)}</td>
+    </tr>`;
+  }).join('');
+  if (!rows) return `<div class="tag">No scores on this trip yet.</div>`;
+  return `<table class="board player-detail">
+    <thead><tr><th>Course</th><th class="num">Score</th><th class="num">Gross</th><th class="num">Net</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
 function careerStats() {
   const agg = {};
   store.trips.forEach(t => {
@@ -1275,29 +1341,35 @@ function renderTrip(tripId, main, crumbs, courseSlug, openRoundId) {
 
   const openCourseKey = courseSlug ? decodeURIComponent(courseSlug).toLowerCase() : null;
 
-  const boardRows = board.map((row, i) => `
-    <tr class="${i === 0 ? 'rank1' : ''}">
+  const boardRows = board.map((row, i) => {
+    const open = openPlayerDetails.has(`${tripId}:${row.pid}`);
+    return `
+    <tr class="${i === 0 ? 'rank1' : ''} player-row-toggle ${open ? 'open' : ''}" id="prow-${row.pid}" onclick="togglePlayerDetail('${tripId}', '${row.pid}')">
       <td class="rankcell">${i + 1}</td>
-      <td class="player">${playerCell(trip, row.pid)}</td>
+      <td class="player"><span class="pchev">›</span> ${playerCell(trip, row.pid)}</td>
       <td class="num">${row.rounds}</td>
       <td class="num ${toParClass(row.toPar)}">${toParLabel(row.toPar)}</td>
-      <td class="num">${row.netToPar === null ? '–' : `<span class="${toParClass(row.netToPar)}">${toParLabel(row.netToPar)}</span>`}</td>
+      <td class="num">${toParCell(row.netToPar)}</td>
       <td class="num">${row.best ?? '–'}</td>
-    </tr>`).join('') || `<tr><td colspan="6" class="empty" style="border:none;">No rounds logged yet.</td></tr>`;
+    </tr>
+    <tr class="pdetail" id="pdetail-${row.pid}" ${open ? '' : 'hidden'}>
+      <td colspan="6">${playerTripDetail(trip, courses, row.pid)}</td>
+    </tr>`;
+  }).join('') || `<tr><td colspan="6" class="empty" style="border:none;">No rounds logged yet.</td></tr>`;
 
   const courseRows = courses.map(c => {
     const isOpen = (openCourseKey && c.key === openCourseKey);
     const cBoard = courseLeaderboard(c.rounds, trip);
-    const leader = cBoard[0];
+    const info = courseInfo(c.rounds);
     const dates = c.rounds.map(r => r.date).filter(Boolean).sort();
     const dateMeta = dates.length ? fmtRange(dates[0], dates[dates.length - 1]) : '';
     const cBoardRows = cBoard.map((row, i) => `
       <tr class="${i === 0 ? 'rank1' : ''}">
         <td class="rankcell">${i + 1}</td>
         <td class="player">${playerCell(trip, row.pid)}</td>
-        <td class="num">${row.rounds}</td>
+        <td class="num">${row.strokes}</td>
         <td class="num ${toParClass(row.toPar)}">${toParLabel(row.toPar)}</td>
-        <td class="num">${row.netToPar === null ? '–' : `<span class="${toParClass(row.netToPar)}">${toParLabel(row.netToPar)}</span>`}</td>
+        <td class="num">${toParCell(row.netToPar)}</td>
       </tr>`).join('');
     const roundCards = c.rounds.map(r => renderRoundCard(tripId, r, r.id === openRoundId)).join('');
 
@@ -1307,16 +1379,14 @@ function renderTrip(tripId, main, crumbs, courseSlug, openRoundId) {
           <div class="name">${escapeHtml(c.name)}</div>
           <div class="meta">${c.rounds.length} round${c.rounds.length===1?'':'s'}${dateMeta ? ' · ' + dateMeta : ''}</div>
           <div class="lead">
-            <div>
-              ${leader ? `<div class="who">${escapeHtml(playerName(leader.pid))} ${toParLabel(leader.toPar)}</div>` : `<div>No scores yet</div>`}
-            </div>
+            <div class="course-info">${courseInfoBits(info).map(b => `<div>${escapeHtml(b)}</div>`).join('')}</div>
             <span class="chev">›</span>
           </div>
         </div>
         <div class="cdrawer">
           ${cBoard.length ? `
             <table class="board" style="margin-bottom:18px;">
-              <thead><tr><th></th><th>Player</th><th class="num">Rds</th><th class="num">Gross to par</th><th class="num">Net to par</th></tr></thead>
+              <thead><tr><th></th><th>Player</th><th class="num">Score</th><th class="num">Gross to par</th><th class="num">Net to par</th></tr></thead>
               <tbody>${cBoardRows}</tbody>
             </table>` : ''}
           ${roundCards}
@@ -2388,12 +2458,36 @@ function renderParGrid() {
       <td class="pg-label">Par</td>
       ${[...Array(9)].map((_, k) => {
         const i = start + k;
-        return `<td><input class="course-par-in" type="number" min="3" max="6" inputmode="numeric" data-hole="${i}" value="${st.par[i]}" onchange="updatePar(${i}, this.value)"></td>`;
+        return `<td><input class="course-par-in" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" enterkeyhint="next" maxlength="1" data-hole="${i}" value="${st.par[i]}" onfocus="this.select()" oninput="onParInput(this)" onkeydown="onParKey(event, this)" onchange="updatePar(${i}, this.value)" aria-label="Par hole ${i + 1}"></td>`;
       }).join('')}
       <td class="pg-sum" id="pgSum${label}"></td>
     </tr>`;
   el.innerHTML = `<table class="par-grid">${nine(0, 'OUT')}${nine(9, 'IN')}</table>`;
   refreshParTotals();
+}
+
+// Same quick entry as scores: pars are one digit (3–6), so each keystroke
+// saves that hole and jumps to the next. Other digits are ignored.
+function onParInput(el) {
+  const v = el.value.replace(/[^3-6]/g, '').slice(-1);
+  el.value = v;
+  if (!v) return;
+  updatePar(Number(el.dataset.hole), v);
+  const all = [...document.querySelectorAll('input.course-par-in')];
+  const next = all[all.indexOf(el) + 1];
+  if (next) next.focus(); else el.blur();
+}
+
+function onParKey(e, el) {
+  const all = [...document.querySelectorAll('input.course-par-in')];
+  const i = all.indexOf(el);
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    if (all[i + 1]) all[i + 1].focus(); else el.blur();
+  } else if (e.key === 'Backspace' && !el.value && all[i - 1]) {
+    e.preventDefault();
+    all[i - 1].focus();
+  }
 }
 
 function setRoundPars(pars) {
@@ -2499,7 +2593,8 @@ function renderScorecardEntry() {
 
 function updatePar(holeIdx, val) {
   const n = Math.round(Number(val));
-  window.__roundState.par[holeIdx] = (n >= 3 && n <= 6) ? n : 4;
+  // Anything outside 3–6 (or a cleared box) keeps the hole's previous par.
+  if (n >= 3 && n <= 6) window.__roundState.par[holeIdx] = n;
   const inp = document.querySelector(`input.course-par-in[data-hole="${holeIdx}"]`);
   if (inp) inp.value = window.__roundState.par[holeIdx];
   refreshParTotals();
