@@ -515,7 +515,24 @@
   }
   .tee-select-row { display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
   .tee-select-row select { max-width: 320px; }
-  .tee-rating-note { font-size: 0.78rem; color: var(--ink-soft); }
+  .course-details {
+    border-top: 1px solid var(--line); padding-top: 14px; margin-bottom: 4px;
+  }
+  .row4 { display: grid; grid-template-columns: 1.4fr 1fr 1fr 1fr; gap: 12px; }
+  table.par-grid { border-collapse: collapse; width: 100%; max-width: 520px; font-size: 0.8rem; }
+  table.par-grid th, table.par-grid td {
+    border: 1px solid var(--line); padding: 3px 2px; text-align: center;
+  }
+  table.par-grid th { color: var(--ink-soft); font-weight: 600; background: var(--paper-deep); }
+  table.par-grid .pg-label { text-align: left; padding-left: 6px; width: 44px; color: var(--fairway-deep); font-weight: 600; }
+  table.par-grid .pg-sum { font-weight: 700; background: var(--paper-deep); width: 40px; }
+  table.par-grid input.course-par-in {
+    width: 100%; min-width: 24px; text-align: center; padding: 4px 0; border: none;
+    background: transparent; font-variant-numeric: tabular-nums;
+    -moz-appearance: textfield;
+  }
+  table.par-grid input.course-par-in::-webkit-inner-spin-button,
+  table.par-grid input.course-par-in::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
   .round-card .rtee { font-size: 0.76rem; color: var(--ink-soft); margin-top: 2px; }
 
   /* ---------- scorecard scan ---------- */
@@ -574,6 +591,12 @@
 
   @media (max-width: 520px) {
     .row2, .row3 { grid-template-columns: 1fr; }
+    .row4 { grid-template-columns: 1fr 1fr; }
+    table.par-grid { table-layout: fixed; font-size: 0.74rem; }
+    table.par-grid th, table.par-grid td { padding: 3px 0; }
+    table.par-grid .pg-label { width: 36px; padding-left: 4px; }
+    table.par-grid .pg-sum { width: 30px; }
+    table.par-grid input.course-par-in { min-width: 0; }
     .trip-head .stats { gap: 18px; }
   }
 
@@ -676,6 +699,9 @@ async function ensureTripGeo(trip) {
 }
 
 const OGA_BASE = "https://api.opengolfapi.org/v1";
+// Full course detail (tees with rating/slope/yardage, per-hole data) lives
+// on a separate path; the basic one above only carries par.
+const OGA_FULL_BASE = "https://api.opengolfapi.org/api/v1";
 
 /* ======================= Trips map (themed vector outline, no tiles) =======================
    Draws a plain, low-detail US states outline in the app's own colors using
@@ -789,6 +815,10 @@ async function ogaSearchCourses(query) {
 }
 
 async function ogaGetCourseDetail(id) {
+  try {
+    const full = await fetch(`${OGA_FULL_BASE}/courses/${encodeURIComponent(id)}`);
+    if (full.ok) return await full.json();
+  } catch (e) { /* fall back to the basic detail below */ }
   const res = await fetch(`${OGA_BASE}/courses/${encodeURIComponent(id)}`);
   if (!res.ok) throw new Error("detail failed");
   return await res.json();
@@ -817,7 +847,8 @@ function ogaNormalizeTee(t) {
 // (par doesn't vary by tee, only yardage does) using whichever field the
 // response actually provided.
 function ogaCoursePars(detail) {
-  const rawHoles = Array.isArray(detail.holes) ? detail.holes
+  const rawHoles = Array.isArray(detail.holes_data) ? detail.holes_data
+    : Array.isArray(detail.holes) ? detail.holes
     : Array.isArray(detail.scorecard) ? detail.scorecard
     : [];
   if (!rawHoles.length) return null;
@@ -1177,6 +1208,7 @@ function renderRoundCard(tripId, r, isOpen) {
   const entries = Object.entries(r.scores || {}).filter(([, h]) => h.some(x => Number(x) > 0));
   const teeBits = [];
   if (r.teeName) teeBits.push(`${r.teeName} tees`);
+  if (r.yards) teeBits.push(`${Number(r.yards).toLocaleString()} yds`);
   if (r.courseRating && r.slopeRating) teeBits.push(`${r.courseRating}/${r.slopeRating}`);
   return `
     <div class="round-card ${isOpen ? 'open' : ''}" id="round-${r.id}">
@@ -2113,22 +2145,19 @@ function openRoundModal(tripId, presetCourse, editingRound) {
   const defaultCourse = editing ? (editingRound.course || '') : (presetCourse || '');
   const courseLocked = !editing && !!presetCourse;
 
+  // Course details start from the round being edited, or — when adding another
+  // round at a course already on this trip — from the latest round there.
+  const presetKey = (presetCourse || '').trim().toLowerCase();
+  const priorRound = !editing && presetKey
+    ? allRounds.find(r => (r.course || '').trim().toLowerCase() === presetKey)
+    : null;
+  const courseDefaults = editing ? editingRound : (priorRound || {});
+
   wrap.innerHTML = `
     <div class="modal" style="max-width:900px;">
       <h2>${editing ? `Edit round — ${escapeHtml(defaultCourse || trip.name)}` : (presetCourse ? `Add round — ${escapeHtml(presetCourse)}` : `Add a course — ${escapeHtml(trip.name)}`)}</h2>
-      <div class="row3">
-        <div class="field"><label>Course</label>
-          <input type="text" id="rCourse" value="${escapeHtml(defaultCourse)}" placeholder="Course name" ${courseLocked ? 'readonly' : ''}>
-        </div>
-        <div class="field"><label>Date</label>
-          <input type="date" id="rDate" value="${editing ? (editingRound.date || '') : new Date().toISOString().slice(0,10)}">
-        </div>
-        <div class="field"><label>Par (total)</label>
-          <input type="text" id="rParTotal" readonly value="72">
-        </div>
-      </div>
       <div class="field" id="courseLookupField">
-        <label>Look up the course <span class="tag">(fills in par, and lets you pick a tee for rating/slope)</span></label>
+        <label>Look up the course <span class="tag">(fills in the details below — check them and edit anything that's off)</span></label>
         <div class="course-search-row">
           <input type="text" id="courseSearchInput" placeholder="Search course name…" value="${escapeHtml(defaultCourse)}">
           <button type="button" class="btn ghost small" onclick="searchCourseForRound()">Search</button>
@@ -2136,6 +2165,34 @@ function openRoundModal(tripId, presetCourse, editingRound) {
         <div id="courseSearchResults"></div>
         <div id="courseSearchStatus" class="course-search-status"></div>
         <div id="coursePickedArea"></div>
+      </div>
+      <div class="course-details">
+        <div class="row2">
+          <div class="field"><label>Course name</label>
+            <input type="text" id="rCourse" value="${escapeHtml(defaultCourse)}" placeholder="Course name" ${courseLocked ? 'readonly' : ''}>
+          </div>
+          <div class="field"><label>Date</label>
+            <input type="date" id="rDate" value="${editing ? (editingRound.date || '') : new Date().toISOString().slice(0,10)}">
+          </div>
+        </div>
+        <div class="row4">
+          <div class="field"><label>Tees</label>
+            <input type="text" id="rTees" value="${escapeHtml(courseDefaults.teeName || '')}" placeholder="e.g. Blue">
+          </div>
+          <div class="field"><label>Yards</label>
+            <input type="number" id="rYards" min="0" step="1" inputmode="numeric" value="${escapeHtml(courseDefaults.yards ?? '')}" placeholder="e.g. 6512">
+          </div>
+          <div class="field"><label>Slope</label>
+            <input type="number" id="rSlope" min="55" max="155" step="1" inputmode="numeric" value="${escapeHtml(courseDefaults.slopeRating ?? '')}" placeholder="e.g. 128">
+          </div>
+          <div class="field"><label>Rating</label>
+            <input type="number" id="rRating" min="50" max="85" step="0.1" inputmode="decimal" value="${escapeHtml(courseDefaults.courseRating ?? '')}" placeholder="e.g. 71.4">
+          </div>
+        </div>
+        <div class="field">
+          <label>Par by hole <span class="tag">(total <span id="rParTotal">72</span>)</span></label>
+          <div id="parGridWrap"></div>
+        </div>
       </div>
       <div class="field" id="scanField">
         <label>Scan scorecards <span class="tag">(optional — snap a photo of a completed card; scan again for other groups)</span></label>
@@ -2166,19 +2223,17 @@ function openRoundModal(tripId, presetCourse, editingRound) {
   wrap.addEventListener('click', (e) => { if (e.target === wrap) closeModal(); });
 
   window.__roundState = {
-    par: editing ? (editingRound.par || DEFAULT_PAR.slice()) : DEFAULT_PAR.slice(),
+    par: (courseDefaults.par || DEFAULT_PAR).slice(),
     rosterList,
     players: defaultPlayers.filter(pid => rosterList.some(p => p.id === pid)),
     existingScores: editing ? (editingRound.scores || {}) : null,
     editingRoundId: editing ? editingRound.id : null,
-    teeName: editing ? (editingRound.teeName || null) : null,
-    courseRating: editing ? (editingRound.courseRating || null) : null,
-    slopeRating: editing ? (editingRound.slopeRating || null) : null,
-    sourceCourseId: editing ? (editingRound.sourceCourseId || null) : null,
+    sourceCourseId: courseDefaults.sourceCourseId || null,
     teeOptions: [],
     scanRows: [],
     pendingScanScores: {},
   };
+  renderParGrid();
   renderRosterPick();
   renderScorecardEntry();
 
@@ -2234,11 +2289,11 @@ async function pickSearchedCourse(id, name) {
 
     window.__roundState.sourceCourseId = id;
     window.__roundState.teeOptions = tees;
-    if (pars) window.__roundState.par = pars;
+    if (pars) setRoundPars(pars);
 
     if (statusEl) statusEl.textContent = '';
     renderPickedCourseArea(name, tees);
-    if (tees.length) onTeeSelected(0); else renderScorecardEntry();
+    if (tees.length) onTeeSelected(0);
   } catch (err) {
     if (statusEl) statusEl.textContent = "Couldn't load that course's details — you can still enter par by hand.";
   }
@@ -2261,8 +2316,7 @@ function renderPickedCourseArea(name, tees) {
       <div class="tee-select-row">
         <label class="tag" style="margin:0;">Tee</label>
         <select id="teeSelect" onchange="onTeeSelected(this.value)">${teeOptionsHtml}</select>
-        <span class="tee-rating-note" id="teeRatingNote"></span>
-      </div>` : `<div class="course-search-status">No tee data available for this course — par row filled in where possible.</div>`}
+      </div>` : `<div class="course-search-status">No tee data available for this course — enter tees, yards, slope and rating below.</div>`}
   `;
 }
 
@@ -2270,30 +2324,73 @@ function onTeeSelected(idx) {
   const st = window.__roundState;
   const tee = st.teeOptions[Number(idx)];
   if (!tee) return;
-  st.teeName = tee.name;
-  st.courseRating = tee.rating;
-  st.slopeRating = tee.slope;
+  // Fill the editable fields; anything the lookup doesn't have is cleared
+  // so stale numbers from a different tee don't linger unnoticed.
+  const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v ?? ''; };
+  setVal('rTees', tee.name);
+  setVal('rYards', tee.yards);
+  setVal('rSlope', tee.slope);
+  setVal('rRating', tee.rating);
   // Prefer this tee's own per-hole par if it has a full 18; otherwise keep
   // whatever the course-level lookup already filled in.
   if (tee.holes && tee.holes.length >= 18) {
     const pars = new Array(18).fill(null);
     tee.holes.forEach(h => { if (h.number >= 1 && h.number <= 18 && h.par) pars[h.number - 1] = h.par; });
-    if (pars.every(p => p)) st.par = pars;
+    if (pars.every(p => p)) setRoundPars(pars);
   }
-  const note = document.getElementById('teeRatingNote');
-  if (note) note.textContent = (tee.rating && tee.slope) ? `Rating/Slope: ${tee.rating}/${tee.slope}` : '';
-  renderScorecardEntry();
 }
 
 function clearPickedCourse() {
   const st = window.__roundState;
   st.sourceCourseId = null;
   st.teeOptions = [];
-  st.teeName = null;
-  st.courseRating = null;
-  st.slopeRating = null;
   const pickedEl = document.getElementById('coursePickedArea');
   if (pickedEl) pickedEl.innerHTML = '';
+}
+
+/* ---- per-hole par editor (round modal) ----
+   Two nine-hole rows so it fits a phone without sideways scrolling. Edits
+   update the scorecard's par row in place, so typed scores aren't lost. */
+function renderParGrid() {
+  const st = window.__roundState;
+  const el = document.getElementById('parGridWrap');
+  if (!el) return;
+  const nine = (start, label) => `
+    <tr>
+      <th class="pg-label">Hole</th>
+      ${[...Array(9)].map((_, k) => `<th>${start + k + 1}</th>`).join('')}
+      <th class="pg-sum">${label}</th>
+    </tr>
+    <tr>
+      <td class="pg-label">Par</td>
+      ${[...Array(9)].map((_, k) => {
+        const i = start + k;
+        return `<td><input class="course-par-in" type="number" min="3" max="6" inputmode="numeric" data-hole="${i}" value="${st.par[i]}" onchange="updatePar(${i}, this.value)"></td>`;
+      }).join('')}
+      <td class="pg-sum" id="pgSum${label}"></td>
+    </tr>`;
+  el.innerHTML = `<table class="par-grid">${nine(0, 'OUT')}${nine(9, 'IN')}</table>`;
+  refreshParTotals();
+}
+
+function setRoundPars(pars) {
+  const st = window.__roundState;
+  st.par = pars.slice();
+  document.querySelectorAll('input.course-par-in').forEach(inp => {
+    inp.value = st.par[Number(inp.dataset.hole)];
+  });
+  refreshParTotals();
+}
+
+function refreshParTotals() {
+  const st = window.__roundState;
+  const out = sumHoles(st.par, 0, 9), inn = sumHoles(st.par, 9, 18);
+  const setText = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  setText('pgSumOUT', out);
+  setText('pgSumIN', inn);
+  setText('rParTotal', out + inn);
+  st.par.forEach((p, i) => setText(`scPar${i}`, p));
+  setText('scParTot', out + inn);
 }
 
 function renderRosterPick() {
@@ -2337,8 +2434,8 @@ function renderScorecardEntry() {
   }
   const parRow = `<tr>
       <td class="rowlabel">Par</td>
-      ${st.par.map((p, i) => `<td class="holecell"><input class="par-in" data-hole="${i}" type="number" min="3" max="6" value="${p}" onchange="updatePar(${i}, this.value)"></td>`).join('')}
-      <td class="sum">${sumHoles(st.par,0,18)}</td>
+      ${st.par.map((p, i) => `<td class="holecell" id="scPar${i}">${p}</td>`).join('')}
+      <td class="sum" id="scParTot">${sumHoles(st.par,0,18)}</td>
     </tr>`;
   const headerRow = `<tr><th class="rowlabel">Hole</th>${st.par.map((p,i)=>`<th class="holecell">${i+1}</th>`).join('')}<th class="sum">TOT</th></tr>`;
   const bodyRows = st.players.map(pid => {
@@ -2364,15 +2461,15 @@ function renderScorecardEntry() {
       </table>
     </div>
   `;
-  document.getElementById('rParTotal').value = sumHoles(st.par, 0, 18);
   st.players.forEach(pid => updateScoreTotal(pid));
 }
 
 function updatePar(holeIdx, val) {
-  window.__roundState.par[holeIdx] = Number(val) || 4;
-  document.getElementById('rParTotal').value = sumHoles(window.__roundState.par, 0, 18);
-  // recompute totals shown
-  window.__roundState.players.forEach(pid => updateScoreTotal(pid));
+  const n = Math.round(Number(val));
+  window.__roundState.par[holeIdx] = (n >= 3 && n <= 6) ? n : 4;
+  const inp = document.querySelector(`input.course-par-in[data-hole="${holeIdx}"]`);
+  if (inp) inp.value = window.__roundState.par[holeIdx];
+  refreshParTotals();
 }
 
 function updateScoreTotal(pid) {
@@ -2542,10 +2639,24 @@ async function saveRound(tripId) {
     par: st.par,
     scores,
   };
-  if (st.teeName) data.teeName = st.teeName;
-  if (st.courseRating) data.courseRating = st.courseRating;
-  if (st.slopeRating) data.slopeRating = st.slopeRating;
-  if (st.sourceCourseId) data.sourceCourseId = st.sourceCourseId;
+  // Course details come straight from the editable fields. A field left blank
+  // while editing removes any value saved before, rather than keeping it.
+  const remove = st.editingRoundId ? firebase.firestore.FieldValue.delete() : undefined;
+  const num = id => {
+    const v = parseFloat(document.getElementById(id).value);
+    return Number.isFinite(v) && v > 0 ? v : null;
+  };
+  const details = {
+    teeName: document.getElementById('rTees').value.trim() || null,
+    yards: num('rYards') && Math.round(num('rYards')),
+    slopeRating: num('rSlope') && Math.round(num('rSlope')),
+    courseRating: num('rRating'),
+    sourceCourseId: st.sourceCourseId,
+  };
+  Object.entries(details).forEach(([k, v]) => {
+    if (v) data[k] = v;
+    else if (remove) data[k] = remove;
+  });
 
   let roundId = st.editingRoundId;
   if (roundId) {
