@@ -441,10 +441,19 @@
   table.scorecard td.sum, table.scorecard th.sum { font-weight: 700; background: var(--paper-deep); }
   table.scorecard td.under { color: var(--fairway); font-weight: 700; }
   table.scorecard td.over { color: var(--flag); font-weight: 700; }
-  table.scorecard input.score-in {
-    width: 30px; text-align: center; padding: 4px 2px; border: none;
-    background: transparent; font-variant-numeric: tabular-nums;
+  /* 16px text keeps iOS from zooming in on focus; taller cells are easier to tap. */
+  table.scorecard input.score-in, table.scorecard input.total-in {
+    width: 34px; height: 34px; text-align: center; padding: 0; border: none;
+    background: transparent; font-size: 16px; font-variant-numeric: tabular-nums;
+    border-radius: 2px;
   }
+  table.scorecard input.total-in { width: 42px; font-weight: 700; }
+  table.scorecard input.total-in[readonly] { color: var(--ink); cursor: default; }
+  table.scorecard input.total-in:not([readonly]) { background: #fff; box-shadow: inset 0 0 0 1px var(--line); }
+  table.scorecard input.score-in:focus, table.scorecard input.total-in:focus {
+    outline: 2px solid var(--fairway-bright); outline-offset: -2px; background: #fff;
+  }
+  .score-tip { margin: 2px 0 6px; }
   table.scorecard input.par-in {
     width: 26px; text-align: center; padding: 3px 2px; border: none;
     background: transparent; color: var(--ink-soft); font-size: 0.78rem;
@@ -951,6 +960,20 @@ function sumHoles(arr, from, to) {
   for (let i = from; i < to; i++) s += (Number(arr[i]) || 0);
   return s;
 }
+/* A player's round score: the hole-by-hole sum when holes were entered,
+   otherwise the total-only score (round.totals) for when there's no full card. */
+function hasHoleScores(holes) {
+  return Array.isArray(holes) && holes.some(x => Number(x) > 0);
+}
+function playerRoundTotal(r, pid) {
+  const holes = (r.scores || {})[pid];
+  if (hasHoleScores(holes)) return sumHoles(holes, 0, 18);
+  return Number((r.totals || {})[pid]) || 0;
+}
+function roundPlayerIds(r) {
+  const ids = new Set([...Object.keys(r.scores || {}), ...Object.keys(r.totals || {})]);
+  return [...ids].filter(pid => playerRoundTotal(r, pid) > 0);
+}
 function playerName(id) {
   const p = store.players.find(p => p.id === id);
   return p ? p.name : "Unknown";
@@ -978,10 +1001,8 @@ function buildLeaderboard(rounds, trip) {
   rounds.forEach(r => {
     const par = r.par || DEFAULT_PAR;
     const parTotal = sumHoles(par, 0, 18);
-    Object.entries(r.scores || {}).forEach(([pid, holes]) => {
-      const played = holes.filter(h => Number(h) > 0).length;
-      if (played === 0) return;
-      const total = sumHoles(holes, 0, 18);
+    roundPlayerIds(r).forEach(pid => {
+      const total = playerRoundTotal(r, pid);
       if (!agg[pid]) agg[pid] = { rounds: 0, strokes: 0, parSum: 0, best: null, netToParSum: 0, hasHandicap: false };
       agg[pid].rounds += 1;
       agg[pid].strokes += total;
@@ -1156,7 +1177,8 @@ function renderHome(main) {
 
 function buildScorecardTable(r) {
   const par = r.par || DEFAULT_PAR;
-  const entries = Object.entries(r.scores || {}).filter(([, h]) => h.some(x => Number(x) > 0));
+  const blank = new Array(18).fill(0);
+  const entries = roundPlayerIds(r).map(pid => [pid, (r.scores || {})[pid] || blank]);
   const parOut = sumHoles(par, 0, 9), parIn = sumHoles(par, 9, 18), parTotal = parOut + parIn;
   const front9 = (arr) => arr.slice(0, 9);
   const back9 = (arr) => arr.slice(9, 18);
@@ -1180,7 +1202,7 @@ function buildScorecardTable(r) {
       <td class="sum">${parTotal}</td>
     </tr>`;
   const bodyRowsHtml = entries.map(([pid, holes]) => {
-    const out = sumHoles(holes, 0, 9), inn = sumHoles(holes, 9, 18), tot = out + inn;
+    const out = sumHoles(holes, 0, 9), inn = sumHoles(holes, 9, 18), tot = playerRoundTotal(r, pid);
     const cellsFront = front9(holes).map((h, i) => {
       const n = Number(h) || 0;
       const cls = n === 0 ? '' : (n < par[i] ? 'under' : n > par[i] ? 'over' : '');
@@ -1205,7 +1227,7 @@ function buildScorecardTable(r) {
 }
 
 function renderRoundCard(tripId, r, isOpen) {
-  const entries = Object.entries(r.scores || {}).filter(([, h]) => h.some(x => Number(x) > 0));
+  const entries = roundPlayerIds(r);
   const teeBits = [];
   if (r.teeName) teeBits.push(`${r.teeName} tees`);
   if (r.yards) teeBits.push(`${Number(r.yards).toLocaleString()} yds`);
@@ -2138,9 +2160,9 @@ function openRoundModal(tripId, presetCourse, editingRound) {
   const allRounds = store.roundsByTrip[tripId] || [];
   const lastRound = allRounds[0];
   const defaultPlayers = editing
-    ? Object.keys(editingRound.scores || {})
+    ? [...new Set([...Object.keys(editingRound.scores || {}), ...Object.keys(editingRound.totals || {})])]
     : (lastRound
-        ? Object.entries(lastRound.scores || {}).filter(([, h]) => h.some(x => Number(x) > 0)).map(([pid]) => pid)
+        ? roundPlayerIds(lastRound)
         : rosterList.map(p => p.id));
   const defaultCourse = editing ? (editingRound.course || '') : (presetCourse || '');
   const courseLocked = !editing && !!presetCourse;
@@ -2227,6 +2249,7 @@ function openRoundModal(tripId, presetCourse, editingRound) {
     rosterList,
     players: defaultPlayers.filter(pid => rosterList.some(p => p.id === pid)),
     existingScores: editing ? (editingRound.scores || {}) : null,
+    existingTotals: editing ? (editingRound.totals || {}) : null,
     editingRoundId: editing ? editingRound.id : null,
     sourceCourseId: courseDefaults.sourceCourseId || null,
     teeOptions: [],
@@ -2407,18 +2430,21 @@ function toggleRoundPlayer(pid) {
   const st = window.__roundState;
   const label = document.getElementById(`pick-${pid}`);
   const idx = st.players.indexOf(pid);
+  captureScoreDrafts();
   if (idx === -1) { st.players.push(pid); label.classList.add('checked'); }
   else { st.players.splice(idx, 1); label.classList.remove('checked'); }
   renderScorecardEntry();
 }
 
 function selectAllRoster() {
+  captureScoreDrafts();
   window.__roundState.players = window.__roundState.rosterList.map(p => p.id);
   renderRosterPick();
   renderScorecardEntry();
 }
 
 function clearAllRoster() {
+  captureScoreDrafts();
   window.__roundState.players = [];
   renderRosterPick();
   renderScorecardEntry();
@@ -2438,21 +2464,28 @@ function renderScorecardEntry() {
       <td class="sum" id="scParTot">${sumHoles(st.par,0,18)}</td>
     </tr>`;
   const headerRow = `<tr><th class="rowlabel">Hole</th>${st.par.map((p,i)=>`<th class="holecell">${i+1}</th>`).join('')}<th class="sum">TOT</th></tr>`;
+  // Inputs are plain text with a numeric keypad (not type=number) so we can
+  // read each keystroke and jump to the next hole automatically.
+  const numAttrs = 'type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" enterkeyhint="next"';
   const bodyRows = st.players.map(pid => {
-    const existing = (st.existingScores && st.existingScores[pid]) || (st.pendingScanScores && st.pendingScanScores[pid]);
+    const existing = (st.draftScores && st.draftScores[pid])
+      || (st.pendingScanScores && st.pendingScanScores[pid])
+      || (st.existingScores && st.existingScores[pid]);
+    const total = (st.draftTotals && st.draftTotals[pid]) || (st.existingTotals && st.existingTotals[pid]) || '';
     const cells = st.par.map((p, i) => {
       const v = existing && Number(existing[i]) > 0 ? existing[i] : '';
-      return `<td><input class="score-in" type="number" min="1" max="12" data-pid="${pid}" data-hole="${i}" value="${v}" oninput="updateScoreTotal('${pid}')"></td>`;
+      return `<td><input class="score-in" ${numAttrs} maxlength="2" data-pid="${pid}" data-hole="${i}" value="${v}" onfocus="this.select()" oninput="onScoreInput(this)" onkeydown="onScoreKey(event, this)" aria-label="${escapeHtml(playerName(pid))} hole ${i + 1}"></td>`;
     }).join('');
     return `<tr>
       <td class="rowlabel">${escapeHtml(playerName(pid))}</td>
       ${cells}
-      <td class="sum" id="tot-${pid}">–</td>
+      <td class="sum"><input class="total-in" ${numAttrs} maxlength="3" id="tot-${pid}" data-pid="${pid}" value="${escapeHtml(total)}" placeholder="–" onfocus="this.select()" oninput="this.value = this.value.replace(/\\D/g, '')" aria-label="${escapeHtml(playerName(pid))} total"></td>
     </tr>`;
   }).join('');
 
   holderEl.innerHTML = `
     <label>Scorecard</label>
+    <p class="tag score-tip">Type a score and it jumps to the next hole. Only have a total? Leave the holes blank and type it in TOT.</p>
     <div class="scorecard-wrap">
       <table class="scorecard">
         ${headerRow}
@@ -2472,12 +2505,70 @@ function updatePar(holeIdx, val) {
   refreshParTotals();
 }
 
+/* TOT is computed (and locked) once any hole has a score; with every hole
+   blank it's an editable box for a total-only score. */
 function updateScoreTotal(pid) {
   const inputs = document.querySelectorAll(`input.score-in[data-pid="${pid}"]`);
   let total = 0, any = false;
   inputs.forEach(inp => { const v = Number(inp.value); if (v > 0) { total += v; any = true; } });
-  const cell = document.getElementById(`tot-${pid}`);
-  if (cell) cell.textContent = any ? total : '–';
+  const totIn = document.getElementById(`tot-${pid}`);
+  if (!totIn) return;
+  if (any) {
+    totIn.value = total;
+    totIn.readOnly = true;
+    totIn.dataset.computed = '1';
+  } else {
+    if (totIn.dataset.computed) totIn.value = '';
+    totIn.readOnly = false;
+    delete totIn.dataset.computed;
+  }
+}
+
+// Scores of 2–9 are complete after one digit; a leading 1 waits for a
+// second digit (10–12). For a hole-in-one, just tap the next hole.
+function onScoreInput(el) {
+  const v = el.value.replace(/\D/g, '').replace(/^0+/, '').slice(0, 2);
+  el.value = v;
+  updateScoreTotal(el.dataset.pid);
+  if ((v.length === 1 && v !== '1') || v.length === 2) focusNextScore(el);
+}
+
+function onScoreKey(e, el) {
+  if (e.key === 'Enter') { e.preventDefault(); focusNextScore(el); }
+  else if (e.key === 'Backspace' && !el.value) {
+    // Backspace on an empty cell steps back to fix the previous hole.
+    const all = [...document.querySelectorAll('input.score-in')];
+    const prev = all[all.indexOf(el) - 1];
+    if (prev) { e.preventDefault(); prev.focus(); }
+  }
+}
+
+// Moves across a player's row, then on to the next player's hole 1.
+function focusNextScore(el) {
+  const all = [...document.querySelectorAll('input.score-in')];
+  const next = all[all.indexOf(el) + 1];
+  if (next) {
+    next.focus();
+    next.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
+  } else {
+    el.blur();
+  }
+}
+
+// Remember what's been typed so re-drawing the grid (adding or removing a
+// player) doesn't wipe it.
+function captureScoreDrafts() {
+  const st = window.__roundState;
+  if (!st) return;
+  st.draftScores = st.draftScores || {};
+  st.draftTotals = st.draftTotals || {};
+  st.players.forEach(pid => {
+    const inputs = document.querySelectorAll(`input.score-in[data-pid="${pid}"]`);
+    if (!inputs.length) return;
+    st.draftScores[pid] = [...inputs].map(inp => Number(inp.value) || 0);
+    const totIn = document.getElementById(`tot-${pid}`);
+    st.draftTotals[pid] = totIn && !totIn.dataset.computed ? totIn.value : '';
+  });
 }
 
 /* ======================= Scorecard scanning (free, client-side OCR) =======================
@@ -2603,9 +2694,12 @@ function applyScanRows() {
   const statusEl = document.getElementById('scanStatus');
   const remaining = [];
   let appliedCount = 0;
+  captureScoreDrafts();
   st.scanRows.forEach(row => {
     if (!row.assignedPid) { remaining.push(row); return; }
     st.pendingScanScores[row.assignedPid] = row.scores.map(v => Number(v) || 0);
+    delete st.draftScores[row.assignedPid];
+    delete st.draftTotals[row.assignedPid];
     if (!st.players.includes(row.assignedPid)) st.players.push(row.assignedPid);
     appliedCount++;
   });
@@ -2625,6 +2719,7 @@ async function saveRound(tripId) {
   const st = window.__roundState;
   if (!st.players.length) { alert('Select at least one player.'); return; }
   const scores = {};
+  const totals = {};
   st.players.forEach(pid => {
     const holes = [];
     for (let i = 0; i < 18; i++) {
@@ -2632,12 +2727,17 @@ async function saveRound(tripId) {
       holes.push(inp ? (Number(inp.value) || 0) : 0);
     }
     scores[pid] = holes;
+    // Total-only score: kept only when no holes were entered for this player.
+    const totIn = document.getElementById(`tot-${pid}`);
+    const total = totIn ? Number(totIn.value) : 0;
+    if (!hasHoleScores(holes) && total > 0) totals[pid] = total;
   });
   const data = {
     course: document.getElementById('rCourse').value.trim(),
     date: document.getElementById('rDate').value || new Date().toISOString().slice(0,10),
     par: st.par,
     scores,
+    totals,
   };
   // Course details come straight from the editable fields. A field left blank
   // while editing removes any value saved before, rather than keeping it.
