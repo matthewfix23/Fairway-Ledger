@@ -1522,6 +1522,24 @@ function allCoursesPlayed() {
     .sort((a, b) => b.rounds.length - a.rounds.length);
 }
 
+/* Leaderboard for one course across every trip. Each trip is scored with its
+   own roster handicaps (they change trip to trip), then merged per player. */
+function allCoursesLeaderboard(group) {
+  const agg = {};
+  store.trips.forEach(t => {
+    const rounds = group.rounds.filter(r => (store.roundsByTrip[t.id] || []).includes(r));
+    if (!rounds.length) return;
+    buildLeaderboard(rounds, t).forEach(row => {
+      const a = agg[row.pid] || (agg[row.pid] = { pid: row.pid, rounds: 0, strokes: 0, toPar: 0, netToPar: null });
+      a.rounds += row.rounds;
+      a.strokes += row.strokes;
+      a.toPar += row.toPar;
+      if (row.netToPar !== null) a.netToPar = (a.netToPar || 0) + row.netToPar;
+    });
+  });
+  return Object.values(agg).sort((x, y) => x.toPar - y.toPar);
+}
+
 function renderAllCourses(main, openKey) {
   const groups = allCoursesPlayed();
   const decodedOpenKey = openKey ? decodeURIComponent(openKey).toLowerCase() : null;
@@ -1530,15 +1548,15 @@ function renderAllCourses(main, openKey) {
     const isOpen = decodedOpenKey === g.key;
     const dates = g.rounds.map(r => r.date).filter(Boolean).sort();
     const dateMeta = dates.length ? fmtRange(dates[0], dates[dates.length - 1]) : '';
-    const board = buildLeaderboard(g.rounds, null);
-    const leader = board[0];
+    const board = allCoursesLeaderboard(g);
+    const info = courseInfo([...g.rounds].sort((a, b) => (b.date || '').localeCompare(a.date || '')));
     const boardRows = board.map((row, i) => `
       <tr class="${i === 0 ? 'rank1' : ''}">
         <td class="rankcell">${i + 1}</td>
-        <td class="player">${escapeHtml(playerName(row.pid))}</td>
-        <td class="num">${row.rounds}</td>
+        <td class="player">${escapeHtml(playerName(row.pid))}${row.rounds > 1 ? ` <span class="hcp-tag">(${row.rounds} rds)</span>` : ''}</td>
+        <td class="num">${row.strokes}</td>
         <td class="num ${toParClass(row.toPar)}">${toParLabel(row.toPar)}</td>
-        <td class="num">${row.best ?? '–'}</td>
+        <td class="num">${toParCell(row.netToPar)}</td>
       </tr>`).join('');
     const tripsHtml = g.tripList.map(t => `
       <div class="player-row">
@@ -1552,16 +1570,14 @@ function renderAllCourses(main, openKey) {
           <div class="name">${escapeHtml(g.name)}</div>
           <div class="meta">${g.rounds.length} round${g.rounds.length===1?'':'s'} · ${g.tripList.length} trip${g.tripList.length===1?'':'s'}${dateMeta ? ' · ' + dateMeta : ''}</div>
           <div class="lead">
-            <div>
-              ${leader ? `<div class="who">${escapeHtml(playerName(leader.pid))} ${toParLabel(leader.toPar)}</div>` : `<div>No scores yet</div>`}
-            </div>
+            <div class="course-info">${courseInfoBits(info).map(b => `<div>${escapeHtml(b)}</div>`).join('')}</div>
             <span class="chev">›</span>
           </div>
         </div>
         <div class="cdrawer">
           ${board.length ? `
             <table class="board" style="margin-bottom:14px;">
-              <thead><tr><th></th><th>Player</th><th class="num">Rds</th><th class="num">Gross to par</th><th class="num">Best</th></tr></thead>
+              <thead><tr><th></th><th>Player</th><th class="num">Score</th><th class="num">Gross to par</th><th class="num">Net to par</th></tr></thead>
               <tbody>${boardRows}</tbody>
             </table>` : ''}
           <label class="tag">Played on</label>
