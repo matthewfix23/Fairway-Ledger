@@ -12,5 +12,4 @@ After every change to the app, commit and push to `origin main` without asking:
 
 ## Finding git
 
-Git for Windows may not be on PATH. If `git` isn't found, use GitHub Desktop's bundled copy:
-`C:\Users\fixmp\AppData\Local\GitHubDesktop\app-*\resources\app\git\cmd\git.exe` (pick the newest `app-*` folder).
+Git for Windows is installed at `C:\Users\fixmp\Git\cmd\git.exe`. If `git` isn't found on PATH (the shell may predate the install), use that full path.
