@@ -609,6 +609,88 @@
   .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--gold); }
   .status-dot.live { background: var(--fairway-bright); }
 
+  /* ---------- records ---------- */
+  :root {
+    /* Scoring-mix scale (diverging: good → neutral bogey → bad). Validated for
+       colorblind separation; segments carry % labels + legend for contrast relief. */
+    --mix-birdie: #2f5233; --mix-par: #7fa877; --mix-bogey: #d6cfb0; --mix-double: #dc8f7a; --mix-triple: #a13a2c;
+    --mix-ink-dark: #ffffff; --mix-ink-light: #1d2a1e;
+  }
+  .rec-tiles { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 22px; }
+  .rec-tile { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-card); padding: 12px 10px; text-align: center; }
+  .rec-tile .n { font-family: 'Fraunces', serif; font-size: 1.5rem; font-weight: 700; color: var(--fairway-deep); line-height: 1.1; }
+  .rec-tile .l { font-size: 0.7rem; color: var(--ink-soft); margin-top: 3px; }
+  .rec-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+  .rec-card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-card); padding: 14px 16px 8px; }
+  .rec-card h3 { font-size: 1.08rem; }
+  .rec-blurb { font-size: 0.76rem; color: var(--ink-soft); margin: 2px 0 8px; }
+  .rec-list { list-style: none; margin: 0; padding: 0; }
+  .rec-row { display: grid; grid-template-columns: 24px 1fr auto; gap: 10px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line-soft); }
+  .rec-medal { width: 22px; height: 22px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 0.72rem; font-weight: 800; color: #fff; }
+  .rec-medal.m1 { background: var(--gold); }
+  .rec-medal.m2 { background: #8d948a; }
+  .rec-medal.m3 { background: #9a6b3f; }
+  .rec-name { font-weight: 600; color: var(--fairway-deep); font-size: 0.9rem; }
+  .rec-sub { font-size: 0.72rem; color: var(--ink-soft); line-height: 1.3; }
+  .rec-val { font-family: 'Fraunces', serif; font-weight: 700; font-size: 1.15rem; color: var(--ink); text-align: right; white-space: nowrap; }
+  .rec-par { font-family: 'Inter', sans-serif; font-size: 0.72rem; font-weight: 600; color: var(--ink-soft); }
+  .rec-empty { font-size: 0.82rem; color: var(--ink-soft); padding: 8px 0; }
+  .champ { font-weight: 700; color: var(--fairway-deep); }
+  .champ-table td { vertical-align: top; }
+  .chart-note { margin: -6px 0 12px; }
+  .chart-axis-note { font-size: 0.7rem; color: var(--ink-soft); margin-top: 6px; }
+
+  .hbar-chart, .mix-chart { display: flex; flex-direction: column; gap: 6px; }
+  .hbar-row, .mix-row { display: grid; grid-template-columns: 96px 1fr 48px; gap: 10px; align-items: center; cursor: default; }
+  .mix-row { grid-template-columns: 96px 1fr; }
+  .course-bars .hbar-row { grid-template-columns: 170px 1fr 48px; }
+  .hbar-label { font-size: 0.82rem; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hbar-track { height: 14px; }
+  .hbar-fill { height: 100%; background: var(--fairway); border-radius: 0 4px 4px 0; min-width: 2px; }
+  .hbar-row:hover .hbar-fill, .hbar-row:focus .hbar-fill { background: var(--fairway-bright); }
+  .hbar-row:focus { outline: none; }
+  .hbar-val { font-size: 0.8rem; color: var(--ink-soft); text-align: right; }
+  .mix-bar { display: flex; height: 22px; gap: 2px; }
+  .mix-seg { height: 100%; display: flex; align-items: center; justify-content: center; font-size: 0.68rem; font-weight: 700; min-width: 3px; }
+  .mix-seg:first-child { border-radius: 4px 0 0 4px; }
+  .mix-seg:last-child { border-radius: 0 4px 4px 0; }
+  .mix-seg:hover, .mix-seg:focus { outline: 2px solid var(--ink); outline-offset: -2px; }
+  .mix-birdie { background: var(--mix-birdie); color: var(--mix-ink-dark); }
+  .mix-par { background: var(--mix-par); color: var(--mix-ink-light); }
+  .mix-bogey { background: var(--mix-bogey); color: var(--mix-ink-light); }
+  .mix-double { background: var(--mix-double); color: var(--mix-ink-light); }
+  .mix-triple { background: var(--mix-triple); color: var(--mix-ink-dark); }
+  .mix-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-bottom: 10px; font-size: 0.76rem; color: var(--ink-soft); }
+  .mix-key { display: inline-flex; align-items: center; gap: 5px; }
+  .mix-swatch { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+
+  .spark-grid-wrap { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+  .spark-card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-card); padding: 10px 12px 8px; }
+  .spark-head { display: flex; justify-content: space-between; align-items: baseline; }
+  .spark-name { font-family: 'Fraunces', serif; font-weight: 600; color: var(--fairway-deep); }
+  .spark-delta { font-size: 0.76rem; font-weight: 700; }
+  svg.spark { width: 100%; height: auto; display: block; margin: 4px 0 2px; overflow: visible; }
+  .spark-line { fill: none; stroke: var(--fairway); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+  .spark-dot { fill: var(--fairway); stroke: var(--card); stroke-width: 2; cursor: default; }
+  .spark-best { fill: var(--gold); stroke: var(--card); stroke-width: 2; cursor: default; }
+  .spark-grid { stroke: var(--line); stroke-width: 1; stroke-dasharray: 2 3; }
+  .spark-foot { display: flex; justify-content: space-between; font-size: 0.7rem; color: var(--ink-soft); gap: 8px; }
+
+  .chart-tip {
+    position: fixed; z-index: 100; display: none; pointer-events: none; max-width: 260px;
+    background: var(--ink); color: var(--paper); font-size: 0.76rem; line-height: 1.35;
+    padding: 6px 9px; border-radius: 4px; box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+  }
+
+  @media (max-width: 620px) {
+    .rec-tiles { grid-template-columns: repeat(3, 1fr); }
+    .rec-grid { grid-template-columns: 1fr; }
+    .hbar-row { grid-template-columns: 74px 1fr 42px; gap: 8px; }
+    .mix-row { grid-template-columns: 74px 1fr; gap: 8px; }
+    .course-bars .hbar-row { grid-template-columns: 120px 1fr 42px; }
+    .hide-sm { display: none; }
+  }
+
   @media (max-width: 520px) {
     .row2, .row3 { grid-template-columns: 1fr; }
     .row4 { grid-template-columns: 1fr 1fr; }
@@ -633,6 +715,8 @@
       --fairway-deep: #0f1a0f;
       --fairway-bright: #7fbf82;
       --gold: #d3ad5e;
+      --mix-birdie: #3f7d47; --mix-par: #86b97c; --mix-bogey: #5e5c50; --mix-double: #d98a76; --mix-triple: #b8432f;
+      --mix-ink-light: #10160f;
     }
     body { background-image: linear-gradient(var(--paper-deep) 1px, transparent 1px); }
     .modal, .round-card, .player-row input, .roster-pick label { background: var(--card); }
@@ -643,6 +727,8 @@
     --paper: #171d15; --paper-deep: #1d241a; --card: #202719;
     --ink: #e9ead9; --ink-soft: #9aa68f; --line: #3a4232; --line-soft: #2b3226;
     --fairway: #6fa876; --fairway-deep: #0f1a0f; --fairway-bright: #7fbf82; --gold: #d3ad5e;
+    --mix-birdie: #3f7d47; --mix-par: #86b97c; --mix-bogey: #5e5c50; --mix-double: #d98a76; --mix-triple: #b8432f;
+    --mix-ink-light: #10160f;
   }
 </style>
 </head>
@@ -1243,6 +1329,9 @@ function render() {
   } else if (parts[0] === 'courses') {
     section = 'courses';
     renderAllCourses(main, parts[1]);
+  } else if (parts[0] === 'records') {
+    section = 'records';
+    renderRecords(main);
   } else if (parts[0] === 'training') {
     section = 'home';
     renderTraining(main);
@@ -1261,6 +1350,7 @@ function renderAppTabs(activeKey) {
     { key: 'players', label: 'Roster', hash: '#/players' },
     { key: 'courses', label: 'Courses played', hash: '#/courses' },
     { key: 'stats', label: 'Career stats', hash: '#/stats' },
+    { key: 'records', label: 'Records', hash: '#/records' },
   ];
   el.innerHTML = tabs.map(t =>
     `<button class="apptab ${t.key === activeKey ? 'active' : ''}" onclick="location.hash='${t.hash}'">${t.label}</button>`
@@ -2108,6 +2198,330 @@ function renderStats(main) {
     </table>
   `;
 }
+
+/* ======================= Records =======================
+   Fun all-time records and charts built from every round on every trip.
+   Everything is derived on the fly from store data — nothing extra is saved. */
+function shortName(pid) {
+  const full = playerName(pid);
+  const [first, ...rest] = full.split(' ');
+  const clash = store.players.some(p => p.id !== pid && p.name.split(' ')[0] === first);
+  return clash && rest.length ? `${first} ${rest[rest.length - 1][0]}.` : first;
+}
+
+// One entry per player per round, with everything the records need.
+function collectPlayerRounds() {
+  const out = [];
+  store.trips.forEach(t => {
+    (store.roundsByTrip[t.id] || []).forEach(r => {
+      const par = r.par || DEFAULT_PAR;
+      const parTotal = sumHoles(par, 0, 18);
+      roundPlayerIds(r).forEach(pid => {
+        const gross = playerRoundTotal(r, pid);
+        const hcpStr = (t.roster || {})[pid];
+        const hi = hcpStr ? parseFloat(hcpStr) : NaN;
+        const courseHcp = isNaN(hi) ? null : (r.courseRating && r.slopeRating)
+          ? Math.round(hi * (Number(r.slopeRating) / 113) + (Number(r.courseRating) - parTotal))
+          : Math.round(hi);
+        const holes = (r.scores || {})[pid];
+        out.push({
+          pid, trip: t, round: r, date: r.date || '', course: r.course || 'Unspecified course',
+          par, parTotal, gross, toPar: gross - parTotal,
+          netToPar: courseHcp === null ? null : gross - parTotal - courseHcp,
+          holes: hasHoleScores(holes) ? holes.map(Number) : null,
+        });
+      });
+    });
+  });
+  return out;
+}
+
+// Per-hole result vs par: 'eagle' (or better), 'birdie', 'par', 'bogey', 'double', 'triple' (or worse).
+const MIX_KEYS = ['birdie', 'par', 'bogey', 'double', 'triple'];
+const MIX_LABELS = { birdie: 'Birdie or better', par: 'Par', bogey: 'Bogey', double: 'Double', triple: 'Triple+' };
+function holeResults(pr) {
+  const counts = { eagle: 0, birdie: 0, par: 0, bogey: 0, double: 0, triple: 0 };
+  if (!pr.holes) return counts;
+  pr.holes.forEach((s, i) => {
+    if (!s) return;
+    const d = s - (Number(pr.par[i]) || 4);
+    if (d <= -2) counts.eagle++;
+    else if (d === -1) counts.birdie++;
+    else if (d === 0) counts.par++;
+    else if (d === 1) counts.bogey++;
+    else if (d === 2) counts.double++;
+    else counts.triple++;
+  });
+  return counts;
+}
+
+function recordWhere(pr) {
+  return `${escapeHtml(pr.course)} · ${escapeHtml(pr.trip.name)}${pr.date ? ' · ' + fmtDate(pr.date) : ''}`;
+}
+
+// A top-3 card. rows: [{ pid, value (headline), sub (detail line) }]
+function recordCard(title, blurb, rows) {
+  const medals = ['1', '2', '3'];
+  const body = rows.length ? rows.slice(0, 3).map((row, i) => `
+    <li class="rec-row">
+      <span class="rec-medal m${i + 1}">${medals[i]}</span>
+      <div class="rec-who">
+        <div class="rec-name">${escapeHtml(playerName(row.pid))}</div>
+        <div class="rec-sub">${row.sub}</div>
+      </div>
+      <div class="rec-val num">${row.value}</div>
+    </li>`).join('') : `<li class="rec-empty">Not enough data yet.</li>`;
+  return `<div class="rec-card"><h3>${title}</h3><p class="rec-blurb">${blurb}</p><ol class="rec-list">${body}</ol></div>`;
+}
+
+function renderRecords(main) {
+  const prs = collectPlayerRounds();
+  if (!prs.length) {
+    main.innerHTML = `<div class="section-head"><h2>Records</h2></div><div class="empty">No rounds logged yet — records show up once scores are in.</div>`;
+    return;
+  }
+  const byDateAsc = (a, b) => a.date.localeCompare(b.date);
+  const withHoles = prs.filter(p => p.holes);
+
+  // ---- headline tiles ----
+  const roundsCount = new Set(prs.map(p => p.round.id)).size;
+  const coursesCount = new Set(prs.map(p => p.course.trim().toLowerCase())).size;
+  const tripsCount = new Set(prs.map(p => p.trip.id)).size;
+  const totalStrokes = prs.reduce((s, p) => s + p.gross, 0);
+  const allMix = withHoles.reduce((m, p) => { const c = holeResults(p); Object.keys(m).forEach(k => m[k] += c[k]); return m; }, { eagle: 0, birdie: 0, par: 0, bogey: 0, double: 0, triple: 0 });
+  const tiles = [
+    [tripsCount, 'Trips'], [roundsCount, 'Rounds'], [coursesCount, 'Courses'],
+    [totalStrokes.toLocaleString(), 'Strokes'], [allMix.birdie + allMix.eagle, 'Birdies+'],
+  ].map(([n, l]) => `<div class="rec-tile"><div class="n num">${n}</div><div class="l">${l}</div></div>`).join('');
+
+  // ---- record cards ----
+  const fmtPar = n => toParLabel(n);
+  const bestGross = [...prs].sort((a, b) => a.gross - b.gross || a.toPar - b.toPar || byDateAsc(a, b))
+    .map(p => ({ pid: p.pid, value: `${p.gross} <span class="rec-par">${fmtPar(p.toPar)}</span>`, sub: recordWhere(p) }));
+  const bestNet = prs.filter(p => p.netToPar !== null).sort((a, b) => a.netToPar - b.netToPar || byDateAsc(a, b))
+    .map(p => ({ pid: p.pid, value: fmtPar(p.netToPar), sub: `${p.gross} gross · ${recordWhere(p)}` }));
+  const bigNumber = [...prs].sort((a, b) => b.gross - a.gross || b.toPar - a.toPar || byDateAsc(a, b))
+    .map(p => ({ pid: p.pid, value: `${p.gross} <span class="rec-par">${fmtPar(p.toPar)}</span>`, sub: recordWhere(p) }));
+
+  // Best trip: lowest average gross per round (2+ rounds on the trip).
+  const tripAgg = {};
+  prs.forEach(p => {
+    const k = p.trip.id + ':' + p.pid;
+    const a = tripAgg[k] || (tripAgg[k] = { pid: p.pid, trip: p.trip, n: 0, gross: 0, toPar: 0 });
+    a.n++; a.gross += p.gross; a.toPar += p.toPar;
+  });
+  const bestTrip = Object.values(tripAgg).filter(a => a.n >= 2).sort((a, b) => a.gross / a.n - b.gross / b.n)
+    .map(a => ({ pid: a.pid, value: (a.gross / a.n).toFixed(1), sub: `avg over ${a.n} rounds · ${escapeHtml(a.trip.name)}` }));
+
+  const mostBirdies = withHoles.map(p => ({ p, c: holeResults(p) }))
+    .map(x => ({ ...x, b: x.c.birdie + x.c.eagle })).filter(x => x.b > 0)
+    .sort((a, b) => b.b - a.b || a.p.gross - b.p.gross)
+    .map(x => ({ pid: x.p.pid, value: x.b, sub: `${x.p.gross} gross · ${recordWhere(x.p)}` }));
+
+  const nines = [];
+  withHoles.forEach(p => {
+    nines.push({ p, side: 'Front', score: sumHoles(p.holes, 0, 9), par: sumHoles(p.par, 0, 9) });
+    nines.push({ p, side: 'Back', score: sumHoles(p.holes, 9, 18), par: sumHoles(p.par, 9, 18) });
+  });
+  const bestNine = nines.sort((a, b) => (a.score - a.par) - (b.score - b.par) || a.score - b.score)
+    .map(n => ({ pid: n.p.pid, value: `${n.score} <span class="rec-par">${fmtPar(n.score - n.par)}</span>`, sub: `${n.side} 9 · ${recordWhere(n.p)}` }));
+
+  const holeBlowups = [];
+  withHoles.forEach(p => p.holes.forEach((s, i) => {
+    const par = Number(p.par[i]) || 4;
+    if (s - par >= 3) holeBlowups.push({ p, hole: i + 1, s, par });
+  }));
+  const blowups = holeBlowups.sort((a, b) => (b.s - b.par) - (a.s - a.par) || b.s - a.s)
+    .map(h => ({ pid: h.p.pid, value: `${h.s} <span class="rec-par">on a par ${h.par}</span>`, sub: `Hole ${h.hole} · ${recordWhere(h.p)}` }));
+
+  const careerBirdies = {};
+  withHoles.forEach(p => {
+    const c = holeResults(p);
+    const a = careerBirdies[p.pid] || (careerBirdies[p.pid] = { pid: p.pid, b: 0, e: 0, rounds: 0 });
+    a.b += c.birdie; a.e += c.eagle; a.rounds++;
+  });
+  const birdieKings = Object.values(careerBirdies).filter(a => a.b + a.e > 0).sort((a, b) => (b.b + b.e) - (a.b + a.e))
+    .map(a => ({ pid: a.pid, value: a.b + a.e, sub: `${a.e ? `${a.e} eagle${a.e === 1 ? '' : 's'} · ` : ''}${((a.b + a.e) / a.rounds).toFixed(1)} per round over ${a.rounds}` }));
+
+  const cards = [
+    recordCard('Low gross round', 'Fewest strokes in a single round.', bestGross),
+    recordCard('Low net round', 'Best score to par after handicap.', bestNet),
+    recordCard('Best trip', 'Lowest scoring average across a trip.', bestTrip),
+    recordCard('Best nine', 'Lowest front or back nine, to par.', bestNine),
+    recordCard('Birdie fest', 'Most birdies (or better) in one round.', mostBirdies),
+    recordCard('Birdie kings', 'Most birdies (or better), all time.', birdieKings),
+    recordCard('The big number', 'Highest single-round score. Someone has to.', bigNumber),
+    recordCard('Snowman club', 'Worst single hole, by strokes over par.', blowups),
+  ].join('');
+
+  // ---- trip champions ----
+  const trips = [...store.trips].filter(t => (store.roundsByTrip[t.id] || []).length)
+    .sort((a, b) => (tripLastPlayedDate(a.id) || '').localeCompare(tripLastPlayedDate(b.id) || ''));
+  const champRows = trips.map(t => {
+    const game = tripGame(t);
+    const winnerFor = g => { const b = sortForGame(tripLeaderboard(t.id).slice(), g); return b[0] && gameValue(b[0], g) !== null ? b[0] : null; };
+    const cell = g => { const w = winnerFor(g); return w ? `${escapeHtml(shortName(w.pid))} <span class="rec-par">${gameLabel(w, g)}</span>` : '–'; };
+    const champ = winnerFor(game);
+    return `<tr>
+      <td><a href="#/trip/${t.id}">${escapeHtml(t.name)}</a><div class="rec-sub">${tripDateRange(t.id)}</div></td>
+      <td>${champ ? `<span class="champ">🏆 ${escapeHtml(playerName(champ.pid))}</span> <span class="rec-par">${GAMES[game].label} ${gameLabel(champ, game)}</span>` : '–'}</td>
+      <td class="hide-sm">${cell('gross')}</td>
+      <td class="hide-sm">${cell('net')}</td>
+    </tr>`;
+  }).join('');
+
+  main.innerHTML = `
+    <div class="section-head"><h2>Records</h2></div>
+    <div class="rec-tiles">${tiles}</div>
+    <div class="rec-grid">${cards}</div>
+
+    <div class="section-head" style="margin-top:34px;"><h2>Trip champions</h2></div>
+    <table class="board champ-table">
+      <thead><tr><th>Trip</th><th>Champion <span class="tag">(trip's game)</span></th><th class="hide-sm">Low gross</th><th class="hide-sm">Low net</th></tr></thead>
+      <tbody>${champRows}</tbody>
+    </table>
+
+    <div class="section-head" style="margin-top:34px;"><h2>Scoring average</h2></div>
+    <p class="tag chart-note">Average gross score per round, all trips. Tap a bar for details.</p>
+    ${scoringAverageChart(prs)}
+
+    <div class="section-head" style="margin-top:34px;"><h2>Scoring mix</h2></div>
+    <p class="tag chart-note">Share of holes by result, from hole-by-hole scorecards only.</p>
+    ${scoringMixChart(withHoles)}
+
+    <div class="section-head" style="margin-top:34px;"><h2>Toughest courses</h2></div>
+    <p class="tag chart-note">Average strokes over par per round at each course, hardest first.</p>
+    ${courseDifficultyChart(prs)}
+
+    <div class="section-head" style="margin-top:34px;"><h2>Trip by trip</h2></div>
+    <p class="tag chart-note">Each player's average gross per trip, oldest to newest. Lower is better.</p>
+    ${tripTrendCharts(prs, trips)}
+  `;
+}
+
+/* Horizontal bars: one series, sorted, value labelled at the bar end. */
+function hbarChart(items, { fmt, min = 0, cls = '' }) {
+  const max = Math.max(...items.map(i => i.value));
+  const lo = Math.min(min, ...items.map(i => i.value));
+  const span = (max - lo) || 1;
+  return `<div class="hbar-chart ${cls}">${items.map(i => `
+    <div class="hbar-row" data-tip="${escapeHtml(i.tip)}" tabindex="0">
+      <div class="hbar-label">${escapeHtml(i.label)}</div>
+      <div class="hbar-track"><div class="hbar-fill" style="width:${Math.max(2, ((i.value - lo) / span) * 100)}%"></div></div>
+      <div class="hbar-val num">${fmt(i.value)}</div>
+    </div>`).join('')}</div>`;
+}
+
+function scoringAverageChart(prs) {
+  const agg = {};
+  prs.forEach(p => { const a = agg[p.pid] || (agg[p.pid] = { n: 0, g: 0, best: Infinity }); a.n++; a.g += p.gross; a.best = Math.min(a.best, p.gross); });
+  const items = Object.entries(agg).map(([pid, a]) => ({
+    label: shortName(pid), value: a.g / a.n,
+    tip: `${playerName(pid)}: ${(a.g / a.n).toFixed(1)} avg over ${a.n} rounds · best ${a.best}`,
+  })).sort((a, b) => a.value - b.value);
+  // Start the axis a bit below the best average so differences are visible.
+  const floor = Math.floor(Math.min(...items.map(i => i.value)) / 5) * 5 - 5;
+  return hbarChart(items, { fmt: v => v.toFixed(1), min: floor }) + `<div class="chart-axis-note">Bars start at ${floor}</div>`;
+}
+
+function scoringMixChart(withHoles) {
+  if (!withHoles.length) return `<div class="empty">No hole-by-hole scorecards yet.</div>`;
+  const agg = {};
+  withHoles.forEach(p => {
+    const c = holeResults(p);
+    const a = agg[p.pid] || (agg[p.pid] = { birdie: 0, par: 0, bogey: 0, double: 0, triple: 0, holes: 0 });
+    a.birdie += c.birdie + c.eagle; a.par += c.par; a.bogey += c.bogey; a.double += c.double; a.triple += c.triple;
+    a.holes += c.eagle + c.birdie + c.par + c.bogey + c.double + c.triple;
+  });
+  // Best ball-strikers first: most birdies + pars.
+  const rows = Object.entries(agg).sort((x, y) => (y[1].birdie + y[1].par) / y[1].holes - (x[1].birdie + x[1].par) / x[1].holes);
+  const legend = MIX_KEYS.map(k => `<span class="mix-key"><span class="mix-swatch mix-${k}"></span>${MIX_LABELS[k]}</span>`).join('');
+  const bars = rows.map(([pid, a]) => `
+    <div class="mix-row">
+      <div class="hbar-label">${escapeHtml(shortName(pid))}</div>
+      <div class="mix-bar">${MIX_KEYS.map(k => {
+        const pct = a[k] / a.holes * 100;
+        if (!a[k]) return '';
+        return `<div class="mix-seg mix-${k}" style="width:${pct}%" data-tip="${escapeHtml(`${playerName(pid)} — ${MIX_LABELS[k]}: ${a[k]} of ${a.holes} holes (${pct.toFixed(0)}%)`)}" tabindex="0">${pct >= 11 ? `<span>${pct.toFixed(0)}%</span>` : ''}</div>`;
+      }).join('')}</div>
+    </div>`).join('');
+  return `<div class="mix-legend">${legend}</div><div class="mix-chart">${bars}</div>`;
+}
+
+function courseDifficultyChart(prs) {
+  const agg = {};
+  prs.forEach(p => {
+    const k = p.course.trim().toLowerCase();
+    const a = agg[k] || (agg[k] = { name: p.course.trim(), n: 0, over: 0, par: p.parTotal });
+    a.n++; a.over += p.toPar;
+  });
+  const items = Object.values(agg).map(a => ({
+    label: a.name, value: a.over / a.n,
+    tip: `${a.name} (par ${a.par}): +${(a.over / a.n).toFixed(1)} per round over ${a.n} player-rounds`,
+  })).sort((a, b) => b.value - a.value);
+  return hbarChart(items, { fmt: v => `+${v.toFixed(1)}`, cls: 'course-bars' });
+}
+
+/* Small multiples: one sparkline per player, trips on a shared x-axis and a
+   shared y-scale so the panels compare honestly. */
+function tripTrendCharts(prs, trips) {
+  const W = 220, H = 70, PADX = 8, PADY = 12;
+  const tripIdx = Object.fromEntries(trips.map((t, i) => [t.id, i]));
+  const per = {};
+  prs.forEach(p => {
+    const k = p.pid, ti = tripIdx[p.trip.id];
+    if (ti === undefined) return;
+    const pl = per[k] || (per[k] = {});
+    const c = pl[ti] || (pl[ti] = { n: 0, g: 0 });
+    c.n++; c.g += p.gross;
+  });
+  const all = Object.values(per).flatMap(pl => Object.values(pl).map(c => c.g / c.n));
+  const yMin = Math.floor(Math.min(...all)), yMax = Math.ceil(Math.max(...all));
+  const x = i => PADX + (trips.length > 1 ? i * (W - 2 * PADX) / (trips.length - 1) : (W - 2 * PADX) / 2);
+  const y = v => PADY + (v - yMin) / ((yMax - yMin) || 1) * (H - 2 * PADY); // lower score sits higher
+  const panels = Object.entries(per)
+    .map(([pid, pl]) => ({ pid, pts: Object.entries(pl).map(([ti, c]) => ({ ti: +ti, v: c.g / c.n, n: c.n })).sort((a, b) => a.ti - b.ti) }))
+    .filter(p => p.pts.length >= 2)
+    .sort((a, b) => b.pts.length - a.pts.length || playerName(a.pid).localeCompare(playerName(b.pid)))
+    .map(({ pid, pts }) => {
+      const best = pts.reduce((m, p) => p.v < m.v ? p : m, pts[0]);
+      const last = pts[pts.length - 1], first = pts[0];
+      const delta = last.v - first.v;
+      const path = pts.map((p, i) => `${i ? 'L' : 'M'}${x(p.ti).toFixed(1)},${y(p.v).toFixed(1)}`).join(' ');
+      const dots = pts.map(p => `<circle cx="${x(p.ti).toFixed(1)}" cy="${y(p.v).toFixed(1)}" r="${p === best ? 4.5 : 3.5}" class="${p === best ? 'spark-best' : 'spark-dot'}" data-tip="${escapeHtml(`${playerName(pid)} — ${trips[p.ti].name}: ${p.v.toFixed(1)} avg (${p.n} rds)`)}" tabindex="0"></circle>`).join('');
+      return `<div class="spark-card">
+        <div class="spark-head"><span class="spark-name">${escapeHtml(shortName(pid))}</span>
+          <span class="spark-delta ${delta < 0 ? 'topar-under' : delta > 0 ? 'topar-over' : ''}">${delta < 0 ? '▼' : delta > 0 ? '▲' : '•'} ${Math.abs(delta).toFixed(1)}</span></div>
+        <svg viewBox="0 0 ${W} ${H}" class="spark" role="img" aria-label="${escapeHtml(playerName(pid))} trip averages">
+          <line x1="${PADX}" x2="${W - PADX}" y1="${y(best.v).toFixed(1)}" y2="${y(best.v).toFixed(1)}" class="spark-grid"></line>
+          <path d="${path}" class="spark-line"></path>${dots}
+        </svg>
+        <div class="spark-foot"><span>Best ${best.v.toFixed(1)} · ${escapeHtml(trips[best.ti].name)}</span><span>Now ${last.v.toFixed(1)}</span></div>
+      </div>`;
+    }).join('');
+  if (!panels) return `<div class="empty">Trends appear once players have two or more trips.</div>`;
+  return `<div class="spark-grid-wrap">${panels}</div><div class="chart-axis-note">Shared scale ${yMin}–${yMax}; the highlighted dot is each player's best trip. ▼ means their average dropped from first trip to latest.</div>`;
+}
+
+/* One floating tooltip for every [data-tip] element (charts and bars).
+   Hover on desktop; tap (or keyboard focus) on phones. */
+(function setupTips() {
+  let tip = null;
+  const show = (el, x, y) => {
+    if (!tip) { tip = document.createElement('div'); tip.className = 'chart-tip'; document.body.appendChild(tip); }
+    tip.textContent = el.getAttribute('data-tip');
+    tip.style.display = 'block';
+    const r = tip.getBoundingClientRect();
+    tip.style.left = Math.min(window.innerWidth - r.width - 8, Math.max(8, x - r.width / 2)) + 'px';
+    tip.style.top = Math.max(8, y - r.height - 12) + 'px';
+  };
+  const hide = () => { if (tip) tip.style.display = 'none'; };
+  document.addEventListener('mouseover', e => { const el = e.target.closest('[data-tip]'); if (el) show(el, e.clientX, e.clientY); else hide(); });
+  document.addEventListener('mousemove', e => { const el = e.target.closest('[data-tip]'); if (el && tip && tip.style.display === 'block') show(el, e.clientX, e.clientY); });
+  document.addEventListener('click', e => { const el = e.target.closest('[data-tip]'); if (el) { const r = el.getBoundingClientRect(); show(el, r.left + r.width / 2, r.top); } else hide(); });
+  document.addEventListener('focusin', e => { const el = e.target.closest('[data-tip]'); if (el) { const r = el.getBoundingClientRect(); show(el, r.left + r.width / 2, r.top); } });
+  window.addEventListener('scroll', hide, { passive: true });
+})();
 
 /* ======================= Mutations ======================= */
 async function addPlayerSubmit(e) {
