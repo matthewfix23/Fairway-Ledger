@@ -2202,7 +2202,10 @@ function renderStats(main) {
 /* ======================= Records =======================
    Fun all-time records and charts built from every round on every trip.
    Everything is derived on the fly from store data — nothing extra is saved. */
+// Chart labels: a player's nickname when set (e.g. "Fix"), otherwise first name.
 function shortName(pid) {
+  const p = store.players.find(p => p.id === pid);
+  if (p && p.nickname) return p.nickname;
   const full = playerName(pid);
   const [first, ...rest] = full.split(' ');
   const clash = store.players.some(p => p.id !== pid && p.name.split(' ')[0] === first);
