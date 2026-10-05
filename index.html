@@ -138,6 +138,14 @@
     color: var(--ink-soft); font-weight: 600; font-size: 0.86rem;
     padding: 11px 12px; white-space: nowrap; cursor: pointer;
   }
+  .apptab .lbl-short { display: none; }
+  /* Phones: shorter labels and evenly shared width so all tabs fit without scrolling. */
+  @media (max-width: 620px) {
+    .app-tabs { padding: 0 6px; gap: 0; overflow-x: visible; }
+    .apptab { flex: 1 1 0; min-width: 0; padding: 11px 2px; font-size: 0.8rem; text-align: center; }
+    .apptab .lbl-long { display: none; }
+    .apptab .lbl-short { display: inline; }
+  }
   .apptab:hover { color: var(--fairway-deep); }
   .apptab.active { color: var(--fairway-deep); border-bottom-color: var(--fairway); }
 
@@ -1348,12 +1356,12 @@ function renderAppTabs(activeKey) {
   const tabs = [
     { key: 'home', label: 'Trips', hash: '#/' },
     { key: 'players', label: 'Roster', hash: '#/players' },
-    { key: 'courses', label: 'Courses played', hash: '#/courses' },
-    { key: 'stats', label: 'Career stats', hash: '#/stats' },
+    { key: 'courses', label: 'Courses played', short: 'Courses', hash: '#/courses' },
+    { key: 'stats', label: 'Career stats', short: 'Stats', hash: '#/stats' },
     { key: 'records', label: 'Records', hash: '#/records' },
   ];
   el.innerHTML = tabs.map(t =>
-    `<button class="apptab ${t.key === activeKey ? 'active' : ''}" onclick="location.hash='${t.hash}'">${t.label}</button>`
+    `<button class="apptab ${t.key === activeKey ? 'active' : ''}" onclick="location.hash='${t.hash}'"><span class="lbl-long">${t.label}</span><span class="lbl-short">${t.short || t.label}</span></button>`
   ).join('');
 }
 
@@ -2310,11 +2318,16 @@ function renderRecords(main) {
   const tripAgg = {};
   prs.forEach(p => {
     const k = p.trip.id + ':' + p.pid;
-    const a = tripAgg[k] || (tripAgg[k] = { pid: p.pid, trip: p.trip, n: 0, gross: 0, toPar: 0 });
+    const a = tripAgg[k] || (tripAgg[k] = { pid: p.pid, trip: p.trip, n: 0, gross: 0, toPar: 0, netN: 0, net: 0 });
     a.n++; a.gross += p.gross; a.toPar += p.toPar;
+    if (p.netToPar !== null) { a.netN++; a.net += p.netToPar; }
   });
   const bestTrip = Object.values(tripAgg).filter(a => a.n >= 2).sort((a, b) => a.gross / a.n - b.gross / b.n)
     .map(a => ({ pid: a.pid, value: (a.gross / a.n).toFixed(1), sub: `avg over ${a.n} rounds · ${escapeHtml(a.trip.name)}` }));
+  // Best net trip: lowest average net to par per round (2+ rounds with a handicap).
+  const fmtAvgPar = v => { const r = Math.round(v * 10) / 10; return r === 0 ? 'E' : (r > 0 ? '+' : '') + r.toFixed(1); };
+  const bestNetTrip = Object.values(tripAgg).filter(a => a.netN >= 2).sort((a, b) => a.net / a.netN - b.net / b.netN)
+    .map(a => ({ pid: a.pid, value: fmtAvgPar(a.net / a.netN), sub: `net avg per round over ${a.netN} rounds · ${escapeHtml(a.trip.name)}` }));
 
   const mostBirdies = withHoles.map(p => ({ p, c: holeResults(p) }))
     .map(x => ({ ...x, b: x.c.birdie + x.c.eagle })).filter(x => x.b > 0)
@@ -2350,6 +2363,7 @@ function renderRecords(main) {
     recordCard('Low gross round', 'Fewest strokes in a single round.', bestGross),
     recordCard('Low net round', 'Best score to par after handicap.', bestNet),
     recordCard('Best trip', 'Lowest scoring average across a trip.', bestTrip),
+    recordCard('Best net trip', 'Lowest average net to par per round across a trip.', bestNetTrip),
     recordCard('Best nine', 'Lowest front or back nine, to par.', bestNine),
     recordCard('Birdie fest', 'Most birdies (or better) in one round.', mostBirdies),
     recordCard('Birdie kings', 'Most birdies (or better), all time.', birdieKings),
