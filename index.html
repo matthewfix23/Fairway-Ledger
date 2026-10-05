@@ -1014,7 +1014,7 @@ function buildLeaderboard(rounds, trip) {
     const parTotal = sumHoles(par, 0, 18);
     roundPlayerIds(r).forEach(pid => {
       const total = playerRoundTotal(r, pid);
-      if (!agg[pid]) agg[pid] = { rounds: 0, strokes: 0, parSum: 0, best: null, netToParSum: 0, hasHandicap: false };
+      if (!agg[pid]) agg[pid] = { rounds: 0, strokes: 0, parSum: 0, best: null, netToParSum: 0, hasHandicap: false, quotaSum: 0, quotaRounds: 0 };
       agg[pid].rounds += 1;
       agg[pid].strokes += total;
       agg[pid].parSum += parTotal;
@@ -1028,16 +1028,79 @@ function buildLeaderboard(rounds, trip) {
           : Math.round(hi);
         agg[pid].netToParSum += (total - parTotal) - courseHcp;
         agg[pid].hasHandicap = true;
+        // Quota needs hole-by-hole scores; total-only rounds are left out of it.
+        const holes = (r.scores || {})[pid];
+        if (hasHoleScores(holes)) {
+          agg[pid].quotaSum += quotaPoints(holes, par) - (36 - courseHcp);
+          agg[pid].quotaRounds += 1;
+        }
       }
     });
   });
-  return Object.entries(agg)
+  const board = Object.entries(agg)
     .map(([pid, a]) => ({
       pid, ...a,
       toPar: a.strokes - a.parSum,
       netToPar: a.hasHandicap ? a.netToParSum : null,
-    }))
-    .sort((x, y) => x.toPar - y.toPar);
+      quota: a.quotaRounds ? a.quotaSum : null,
+    }));
+  return sortForGame(board, tripGame(trip));
+}
+
+/* ---- Individual games ----
+   Each trip picks the game its leaderboards are ranked by. The first score
+   column shows that game; the second shows net to par (or gross to par when
+   the game is Net). */
+const GAMES = {
+  gross: { label: 'Gross', column: 'Gross to par', field: 'toPar', higherWins: false },
+  net:   { label: 'Net',   column: 'Net to par',   field: 'netToPar', higherWins: false },
+  quota: { label: 'Quota', column: 'Quota',        field: 'quota', higherWins: true },
+};
+function tripGame(trip) {
+  return GAMES[trip && trip.game] ? trip.game : 'gross';
+}
+function secondaryGame(game) {
+  return game === 'net' ? 'gross' : 'net';
+}
+// Players with no value for the game (e.g. no handicap) sink to the bottom.
+function sortForGame(board, game) {
+  const { field, higherWins } = GAMES[game];
+  return board.sort((x, y) => {
+    const a = x[field], b = y[field];
+    if (a === null && b === null) return x.toPar - y.toPar;
+    if (a === null) return 1;
+    if (b === null) return -1;
+    return (higherWins ? b - a : a - b) || (x.toPar - y.toPar);
+  });
+}
+function gameValue(row, game) {
+  return row[GAMES[game].field];
+}
+// To-par values read "-3 / E / +2" (low is good); quota reads "+3" (high is good).
+function gameLabel(row, game) {
+  const v = gameValue(row, game);
+  if (v === null || v === undefined) return '–';
+  return game === 'quota' ? (v > 0 ? `+${v}` : `${v}`) : toParLabel(v);
+}
+function gameCell(row, game) {
+  const v = gameValue(row, game);
+  if (v === null || v === undefined) return '–';
+  const cls = game === 'quota' ? (v > 0 ? 'topar-under' : v < 0 ? 'topar-over' : 'topar-even') : toParClass(v);
+  return `<span class="${cls}">${gameLabel(row, game)}</span>`;
+}
+
+/* Quota points per hole vs par: double bogey or worse 0, bogey 1, par 2,
+   birdie 4, eagle 8, albatross 16. A player's quota is 36 minus course
+   handicap; their result is points minus quota. */
+function quotaPoints(holes, par) {
+  let pts = 0;
+  for (let i = 0; i < 18; i++) {
+    const s = Number(holes[i]) || 0;
+    if (!s) continue;
+    const d = s - (Number(par[i]) || 4);
+    pts += d >= 2 ? 0 : d === 1 ? 1 : d === 0 ? 2 : d === -1 ? 4 : d === -2 ? 8 : 16;
+  }
+  return pts;
 }
 
 function tripLeaderboard(tripId) {
@@ -1114,19 +1177,20 @@ function togglePlayerDetail(tripId, pid) {
   if (head) head.classList.toggle('open', openPlayerDetails.has(key));
 }
 function playerTripDetail(trip, courses, pid) {
+  const game = tripGame(trip), game2 = secondaryGame(game);
   const rows = courses.map(c => {
     const mine = courseLeaderboard(c.rounds, trip).find(r => r.pid === pid);
     if (!mine) return '';
     return `<tr>
       <td>${escapeHtml(c.name)}${mine.rounds > 1 ? ` <span class="hcp-tag">(${mine.rounds} rds)</span>` : ''}</td>
       <td class="num">${mine.strokes}</td>
-      <td class="num">${toParCell(mine.toPar)}</td>
-      <td class="num">${toParCell(mine.netToPar)}</td>
+      <td class="num">${gameCell(mine, game)}</td>
+      <td class="num">${gameCell(mine, game2)}</td>
     </tr>`;
   }).join('');
   if (!rows) return `<div class="tag">No scores on this trip yet.</div>`;
   return `<table class="board player-detail">
-    <thead><tr><th>Course</th><th class="num">Score</th><th class="num">Gross</th><th class="num">Net</th></tr></thead>
+    <thead><tr><th>Course</th><th class="num">Score</th><th class="num">${GAMES[game].label}</th><th class="num">${GAMES[game2].label}</th></tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
 }
@@ -1217,7 +1281,7 @@ function renderHome(main) {
         <div class="meta">${escapeHtml(t.location || '')}${t.location ? ' · ' : ''}${tripDateRange(t.id)}</div>
         <div class="lead">
           <div>${rounds.length} round${rounds.length === 1 ? '' : 's'}</div>
-          ${leader ? `<div class="who">${escapeHtml(playerName(leader.pid))} ${toParLabel(leader.toPar)}</div>` : `<div>No scores yet</div>`}
+          ${leader ? `<div class="who">${escapeHtml(playerName(leader.pid))} ${gameLabel(leader, tripGame(t))}${tripGame(t) !== 'gross' ? ` <span class="hcp-tag">${GAMES[tripGame(t)].label}</span>` : ''}</div>` : `<div>No scores yet</div>`}
         </div>
       </div>`;
   }).join('');
@@ -1338,6 +1402,7 @@ function renderTrip(tripId, main, crumbs, courseSlug, openRoundId) {
   const rounds = store.roundsByTrip[tripId] || [];
   const board = tripLeaderboard(tripId);
   const courses = tripCourses(tripId);
+  const game = tripGame(trip), game2 = secondaryGame(game);
 
   const openCourseKey = courseSlug ? decodeURIComponent(courseSlug).toLowerCase() : null;
 
@@ -1348,8 +1413,8 @@ function renderTrip(tripId, main, crumbs, courseSlug, openRoundId) {
       <td class="rankcell">${i + 1}</td>
       <td class="player"><span class="pchev">›</span> ${playerCell(trip, row.pid)}</td>
       <td class="num">${row.rounds}</td>
-      <td class="num ${toParClass(row.toPar)}">${toParLabel(row.toPar)}</td>
-      <td class="num">${toParCell(row.netToPar)}</td>
+      <td class="num game-col">${gameCell(row, game)}</td>
+      <td class="num">${gameCell(row, game2)}</td>
       <td class="num">${row.best ?? '–'}</td>
     </tr>
     <tr class="pdetail" id="pdetail-${row.pid}" ${open ? '' : 'hidden'}>
@@ -1368,8 +1433,8 @@ function renderTrip(tripId, main, crumbs, courseSlug, openRoundId) {
         <td class="rankcell">${i + 1}</td>
         <td class="player">${playerCell(trip, row.pid)}</td>
         <td class="num">${row.strokes}</td>
-        <td class="num ${toParClass(row.toPar)}">${toParLabel(row.toPar)}</td>
-        <td class="num">${toParCell(row.netToPar)}</td>
+        <td class="num game-col">${gameCell(row, game)}</td>
+        <td class="num">${gameCell(row, game2)}</td>
       </tr>`).join('');
     const roundCards = c.rounds.map(r => renderRoundCard(tripId, r, r.id === openRoundId)).join('');
 
@@ -1386,7 +1451,7 @@ function renderTrip(tripId, main, crumbs, courseSlug, openRoundId) {
         <div class="cdrawer">
           ${cBoard.length ? `
             <table class="board" style="margin-bottom:18px;">
-              <thead><tr><th></th><th>Player</th><th class="num">Score</th><th class="num">Gross to par</th><th class="num">Net to par</th></tr></thead>
+              <thead><tr><th></th><th>Player</th><th class="num">Score</th><th class="num game-col">${GAMES[game].column}</th><th class="num">${GAMES[game2].column}</th></tr></thead>
               <tbody>${cBoardRows}</tbody>
             </table>` : ''}
           ${roundCards}
@@ -1409,13 +1474,14 @@ function renderTrip(tripId, main, crumbs, courseSlug, openRoundId) {
         <div class="stat"><div class="n">${rosterCount}</div><div class="l">PLAYERS</div></div>
         <div class="stat"><div class="n">${courses.length}</div><div class="l">COURSES</div></div>
         <div class="stat"><div class="n">${rounds.length}</div><div class="l">ROUNDS</div></div>
-        <div class="stat"><div class="n">${board[0] ? toParLabel(board[0].toPar) : '–'}</div><div class="l">TRIP LEADER</div></div>
+        <div class="stat"><div class="n">${board[0] ? gameLabel(board[0], game) : '–'}</div><div class="l">TRIP LEADER</div></div>
+        <div class="stat"><div class="n">${GAMES[game].label}</div><div class="l">GAME</div></div>
       </div>
     </div>
 
     <div class="section-head"><h2>Overall leaderboard</h2></div>
     <table class="board">
-      <thead><tr><th></th><th>Player</th><th class="num">Rds</th><th class="num">Gross to par</th><th class="num">Net to par</th><th class="num">Best</th></tr></thead>
+      <thead><tr><th></th><th>Player</th><th class="num">Rds</th><th class="num game-col">${GAMES[game].column}</th><th class="num">${GAMES[game2].column}</th><th class="num">Best</th></tr></thead>
       <tbody>${boardRows}</tbody>
     </table>
 
@@ -2160,6 +2226,13 @@ function openTripModal(tripId) {
         <div class="field"><label>Location</label>
           <input type="text" id="tLocation" required value="${trip ? escapeHtml(trip.location || '') : ''}" placeholder="e.g. Pinehurst, NC">
         </div>
+        <div class="field"><label>Individual game <span class="tag">(ranks this trip's leaderboards)</span></label>
+          <select id="tGame">
+            <option value="gross" ${tripGame(trip) === 'gross' ? 'selected' : ''}>Gross — lowest strokes to par</option>
+            <option value="net" ${tripGame(trip) === 'net' ? 'selected' : ''}>Net — lowest to par after handicap</option>
+            <option value="quota" ${tripGame(trip) === 'quota' ? 'selected' : ''}>Quota — most points over 36 minus handicap</option>
+          </select>
+        </div>
         <div class="field">
           <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
             <label style="margin:0;">Trip roster — check who's coming and set their handicap for this trip</label>
@@ -2196,6 +2269,7 @@ function openTripModal(tripId) {
     const data = {
       name: document.getElementById('tName').value.trim(),
       location: document.getElementById('tLocation').value.trim(),
+      game: document.getElementById('tGame').value,
       roster: newRoster,
     };
     const geo = await geocodeLocation(data.location);
